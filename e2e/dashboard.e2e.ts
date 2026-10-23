@@ -12,7 +12,8 @@ test.describe("Tableau de bord en temps réel", () => {
         await expect(page.locator("[data-action=grant-self]")).toBeVisible();
         await shot(page, info, "dashboard-vide");
         await page.locator("[data-action=grant-self]").click();
-        await expect(dialog(page).locator("[data-impact=none]")).toBeVisible();
+        // Selon les agents déjà présents en base : « gagnent l'accès » ou « aucun changement »
+        await expect(dialog(page).locator("[data-impact]").first()).toBeVisible();
         await dialogAction(page, "Accorder l'accès");
         await expect(dialog(page)).toHaveCount(0);
 
@@ -61,12 +62,12 @@ test.describe("Tableau de bord en temps réel", () => {
         await expect(card.locator(".san-status")).toHaveAttribute("data-status", "error");
         await expect(card).toContainText("Échec des tests");
 
-        await agent.nudge({ text: "Validation requise", priority: "high" });
-        const nudge = page.locator(".san-event[data-priority=high]").filter({ hasText: "Validation requise" });
+        await agent.nudge({ text: `Validation requise ${slug}`, priority: "high" });
+        const nudge = page.locator(".san-event[data-priority=high]").filter({ hasText: `Validation requise ${slug}` });
         await expect(nudge).toBeVisible();
         await expect(nudge).toContainText("Urgent");
-        await agent.nudge({ text: "Simple info" });
-        await expect(page.locator(".san-event[data-priority=normal]").filter({ hasText: "Simple info" })).toBeVisible();
+        await agent.nudge({ text: `Simple info ${slug}` });
+        await expect(page.locator(".san-event[data-priority=normal]").filter({ hasText: `Simple info ${slug}` })).toBeVisible();
         await shot(page, info, "dashboard");
 
         expect(await page.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload)).toBe(true);
@@ -81,10 +82,10 @@ test.describe("Tableau de bord en temps réel", () => {
         const evil = "<img src=x onerror=\"window.__pwned=1\">";
         const agent = await FakeAgent.create(token, baseURL!);
         await agent.state({ status: "working", detail: evil });
-        await agent.nudge({ text: `<script>window.__pwned=1</script>${evil}`, priority: "high" });
+        await agent.nudge({ text: `${slug} <script>window.__pwned=1</script>${evil}`, priority: "high" });
         const card = page.locator(`.san-agent[data-agent="${slug}"]`);
         await expect(card).toContainText(evil);
-        await expect(page.locator(".san-event").filter({ hasText: "<script>" })).toBeVisible();
+        await expect(page.locator(".san-event").filter({ hasText: `${slug} <script>` })).toBeVisible();
         await expect(page.locator("dashboard-page img, dashboard-page script, dashboard-page b")).toHaveCount(0);
         expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
         await shot(page, info, "echappement");
@@ -101,13 +102,25 @@ test.describe("Tableau de bord en temps réel", () => {
         await (await FakeAgent.create(tokenA, baseURL!)).state({ status: "idle" });
         await expect(page.locator(`.san-agent[data-agent="${a}"]`)).toBeVisible();
         await expect(page.locator(`.san-agent[data-agent="${b}"]`)).toBeVisible();
+        // Pas de can_send_voice sur la règle : ni micro ni « Annuler » sur la carte
+        await expect(page.locator(`.san-agent[data-agent="${b}"] .san-rec`)).toBeHidden();
+        await expect(page.locator(`.san-agent[data-agent="${b}"] button`)).toHaveCount(2);
+        await expect(page.locator(`.san-agent[data-agent="${b}"] button:visible`)).toHaveCount(0);
         const slugs = (): Promise<string[]> => page.locator(".san-agent").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset["agent"]!));
         const before = (await slugs()).filter((s) => s === a || s === b);
         expect(before).toEqual([a, b]);
 
         await page.getByRole("button", { name: "Réglages" }).click();
-        await page.locator(`[data-list=settings] li[data-agent="${b}"] [data-action=up]`).click();
-        await expect.poll(async () => (await slugs()).filter((s) => s === a || s === b)).toEqual([b, a]);
+        // D'autres agents peuvent s'intercaler (base partagée) : on remonte Bravo jusqu'à passer devant Alpha
+        const order = async (): Promise<string[]> => (await slugs()).filter((s) => s === a || s === b);
+        for (let i = 0; i < 40 && (await order())[0] !== b; i++) {
+            const shown = await page.locator(`.san-agent`).count();
+            await page.locator(`[data-list=settings] li[data-agent="${b}"] [data-action=up]`).click();
+            await expect.poll(async () => (await page.locator(`[data-list=settings] li[data-agent="${b}"]`).evaluate((li) => Array.from(li.parentElement!.children).indexOf(li))), { timeout: 3000 }).not.toBe(-1);
+            await page.waitForTimeout(150);
+            expect(await page.locator(`.san-agent`).count()).toBe(shown);
+        }
+        expect(await order()).toEqual([b, a]);
         await page.locator(`[data-list=settings] li[data-agent="${a}"] [data-action=mute]`).click();
         await expect(page.locator(`.san-agent[data-agent="${a}"]`)).toHaveAttribute("data-muted", "true");
     });

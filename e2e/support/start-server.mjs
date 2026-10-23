@@ -39,4 +39,7 @@ const child = spawn("node", ["dist/main.js"], {
 for (const signal of ["SIGINT", "SIGTERM"]) {
     process.on(signal, () => child.kill(signal));
 }
-child.on("exit", (code) => process.exit(code ?? 0));
+child.on("exit", (code, signal) => {
+    console.error(`[start-server] le serveur s'est arrêté (code ${code}, signal ${signal})`);
+    process.exit(code ?? 1);
+});

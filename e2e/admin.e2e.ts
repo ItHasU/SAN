@@ -62,7 +62,7 @@ test.describe("Administration", () => {
         const form = page.locator("[data-form=rule]");
         await form.locator("input[name=pattern]").fill("Mauvais motif%");
         await expect(form.locator(".san-error")).toContainText("Caractères autorisés");
-        await form.locator("input[name=pattern]").fill(`${slug.slice(0, 8)}*`);
+        await form.locator("input[name=pattern]").fill(`${slug.slice(0, -1)}?`);
         await expect(form.locator("[data-preview=pattern]")).toContainText("1 agent");
 
         // can_send_voice grisé avec explication : la carte n'a pas de micro
@@ -78,7 +78,7 @@ test.describe("Administration", () => {
 
         // Couverture de la règle, avec explication du can_send_voice grisé
         const rule = page.locator("[data-list=rules] article").first();
-        await expect(rule).toContainText(`${slug.slice(0, 8)}*`);
+        await expect(rule).toContainText(`${slug.slice(0, -1)}?`);
         await expect(rule.locator("[data-hint=no-mic]")).toContainText("ne déclare pas de micro");
         await expect(rule.locator("input[type=checkbox]")).toBeDisabled();
         await rule.getByRole("button", { name: "Couverture actuelle" }).click();
@@ -159,10 +159,10 @@ test.describe("Administration", () => {
 
     test("règle can_send_voice possible pour un viewer qui déclare un micro", async ({ page, request }) => {
         await login(page);
-        const card = await enrollCard(request, uid("hw"), true);
-        void card;
+        const hardware = uid("hw");
+        await enrollCard(request, hardware, true);
         await goTo(page, "Demandes en attente");
-        const pending = page.locator("[data-list=pending] article").last();
+        const pending = page.locator("[data-list=pending] article").filter({ hasText: hardware });
         await pending.getByRole("button", { name: "Activer" }).click();
         const name = `Micro ${uid("m")}`;
         await dialog(page).locator("input[name=name]").fill(name);
@@ -170,7 +170,7 @@ test.describe("Administration", () => {
         await dialogAction(page, "Activer");
         await goTo(page, "Viewers");
         await page.locator("[data-list=viewers] article").filter({ hasText: name }).getByRole("button", { name: "Détail et permissions" }).click();
-        await expect(page.locator("[data-list=capabilities]")).toContainText("Micro");
+        await expect(page.locator("[data-list=capabilities] .tag-success")).toHaveText("Micro");
         await expect(page.locator("[data-form=rule] input[type=checkbox]")).toBeEnabled();
     });
 

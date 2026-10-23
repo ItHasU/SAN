@@ -336,3 +336,26 @@ details > summary {
 .shell-content {
     overflow-x: hidden;
 }
+
+/* Dialogues : sur un petit écran, le corps défile et les boutons restent atteignables */
+.dialog {
+    display: flex;
+    flex-direction: column;
+    max-height: 90dvh;
+}
+
+.dialog-body {
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.dialog-actions {
+    flex: none;
+    flex-wrap: wrap;
+}
+
+/* `[hidden]` doit l'emporter sur les `display` des classes (.btn, .san-row…) */
+.san-page [hidden],
+.san-dialog-body [hidden] {
+    display: none !important;
+}
