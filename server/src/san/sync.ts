@@ -45,7 +45,7 @@ export async function syncViewer(db: Db, viewerId: string, query: SyncQuery, now
 
     const tracked = trackedAgents(config).map((agent) => agent.agent);
     const states = await fetchStates(db, tracked, capabilities, now);
-    const { events, has_more } = await fetchViewerEvents(db, config, capabilities, cursor, SYNC_PAGE_SIZE);
+    const { events, has_more } = await fetchViewerEvents(db, viewerId, config, capabilities, cursor, SYNC_PAGE_SIZE);
     const nextSyncS = has_more ? MORE_NEXT_SYNC_S : DEFAULT_NEXT_SYNC_S;
 
     await db.run(

@@ -180,7 +180,7 @@ class SseConnection {
         while (this._needEvents && !this._closed) {
             this._needEvents = false;
             for (;;) {
-                const page = await fetchViewerEvents(this._db, this._config!, this._capabilities, this._lastId, SYNC_PAGE_SIZE);
+                const page = await fetchViewerEvents(this._db, this._viewerId, this._config!, this._capabilities, this._lastId, SYNC_PAGE_SIZE);
                 for (const event of page.events) {
                     this._write(`id: ${event.id}\nevent: event\ndata: ${JSON.stringify(event)}\n\n`);
                     this._lastId = event.id;

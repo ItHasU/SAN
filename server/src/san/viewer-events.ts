@@ -1,5 +1,7 @@
 import { isStale } from "./agents";
+import { normalizeSampleRate, PIVOT_SAMPLE_RATE } from "./audio/formats";
 import { Sql } from "./db";
+import { RULE_COVERS_AGENT_SQL } from "./permissions";
 import { ConfigAgent, trackedAgents, ViewerConfig } from "./viewer-config";
 
 /** Événements et états tels que les voit un viewer (SPEC §10.4) */
@@ -44,7 +46,7 @@ type Capabilities = Record<string, any> | null | undefined;
 
 /** Ordre de préférence des formats servis (DESIGN §5) : `ima_adpcm`, `mp3` (web), `pcm_s16le`, `ogg` */
 const FORMAT_PREFERENCE = ["ima_adpcm", "mp3", "pcm_s16le", "ogg"];
-export const PIVOT_SAMPLE_RATE = 16000;
+export { PIVOT_SAMPLE_RATE };
 
 /**
  * Format de clip adapté aux capacités d'un viewer (DESIGN §5) : le préféré des
@@ -64,7 +66,8 @@ export function chooseAudioFormat(capabilities: Capabilities): { format: string,
     const rates: number[] = Array.isArray(out.sample_rates) ? out.sample_rates.filter((r: unknown) => typeof r === "number" && r > 0) : [];
     const atMostPivot = rates.filter((rate) => rate <= PIVOT_SAMPLE_RATE);
     const sampleRate = atMostPivot.length > 0 ? Math.max(...atMostPivot) : rates.length > 0 ? Math.min(...rates) : PIVOT_SAMPLE_RATE;
-    return { format, sample_rate: sampleRate };
+    // mp3 et ogg (Opus) ne produisent pas toutes les fréquences : repli sur le pivot
+    return { format, sample_rate: normalizeSampleRate(format, sampleRate) };
 }
 
 //#endregion
@@ -134,27 +137,52 @@ interface EventRow {
 }
 
 /**
+ * Début du suivi de chaque agent suivi (SPEC §9.2 : « pas l'historique »).
+ * En `manual` : `subscribed_at` de l'abonnement (remis à jour à chaque passage de
+ * non suivi à suivi). En `auto` : création de la première règle qui couvre l'agent.
+ * `null` : pas de borne (données antérieures à la migration 0003).
+ */
+export async function trackingStarts(sql: Sql, viewerId: string, config: ViewerConfig): Promise<Map<string, Date | null>> {
+    const starts = new Map<string, Date | null>();
+    const rows = config.mode === "manual"
+        ? await sql.all<{ slug: string, since: Date | null }>(
+            `SELECT agent_slug AS slug, subscribed_at AS since FROM subscriptions WHERE viewer_id = $1 AND subscribed`, viewerId)
+        : await sql.all<{ slug: string, since: Date | null }>(
+            `SELECT a.slug, min(r.created_at) AS since FROM agents a
+             JOIN permission_rules r ON r.viewer_id = $1 AND ${RULE_COVERS_AGENT_SQL}
+             GROUP BY a.slug`, viewerId);
+    for (const row of rows) {
+        starts.set(row.slug, row.since);
+    }
+    return starts;
+}
+
+/**
  * Événements `to_viewers` d'identifiant > `afterId`, filtrés **à la lecture**
  * (SPEC §9.2) : l'agent doit être visible et suivi (`config`), l'événement non
- * expiré. Un agent muet reste livré, marqué `muted`. Un viewer sans sortie
+ * expiré et postérieur au début du suivi de l'agent. Un agent muet reste livré, marqué `muted`. Un viewer sans sortie
  * audio reçoit les messages vocaux sous forme de texte seul.
  */
 export async function fetchViewerEvents(
-    sql: Sql, config: ViewerConfig, capabilities: Capabilities, afterId: number, limit: number = SYNC_PAGE_SIZE
+    sql: Sql, viewerId: string, config: ViewerConfig, capabilities: Capabilities, afterId: number, limit: number = SYNC_PAGE_SIZE
 ): Promise<{ events: EventView[], has_more: boolean }> {
     const tracked = trackedAgents(config);
     if (tracked.length === 0) {
         return { events: [], has_more: false };
     }
     const byAgent = new Map<string, ConfigAgent>(tracked.map((agent) => [agent.agent, agent]));
+    const starts = await trackingStarts(sql, viewerId, config);
+    const slugs = [...byAgent.keys()];
     const rows = await sql.all<EventRow>(
         `SELECT e.id::text AS id, e.agent_slug, e.kind, e.text, e.priority, e.created_at,
                 e.clip_id, c.status AS clip_status, c.duration_ms AS clip_duration_ms
-         FROM events e LEFT JOIN voice_clips c ON c.id = e.clip_id
+         FROM events e
+         JOIN unnest($2::text[], $4::timestamptz[]) AS t(slug, since) ON t.slug = e.agent_slug
+         LEFT JOIN voice_clips c ON c.id = e.clip_id
          WHERE e.direction = 'to_viewers' AND e.id > $1::bigint AND e.expires_at > now()
-           AND e.agent_slug = ANY($2::text[])
+           AND (t.since IS NULL OR e.created_at >= t.since)
          ORDER BY e.id LIMIT $3::int`,
-        afterId, [...byAgent.keys()] as never, limit + 1
+        afterId, slugs as never, limit + 1, slugs.map((slug) => starts.get(slug)?.toISOString() ?? null) as never
     );
     const hasMore = rows.length > limit;
     const page = rows.slice(0, limit);

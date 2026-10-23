@@ -91,7 +91,7 @@ structurante doit y être ajoutée.
   `ima_adpcm` (WAV `adpcm_ima_wav`). Toujours dans un conteneur **RIFF/WAV** pour être
   auto-descriptif. Préférence serveur : `ima_adpcm` si déclaré, sinon `pcm_s16le` ;
   fréquence : la plus haute déclarée ≤ 16000. Viewer web : `audio_out.formats =
-  ["mp3","ogg","pcm_s16le"]` → servi en `mp3` (le serveur sait aussi servir `mp3`/`ogg`).
+  ["mp3","ogg","pcm_s16le"]` → servi en `mp3` (le serveur sait aussi servir `mp3`/`ogg`), voir §11.
 - Envoi viewer → agent : corps `audio/wav` (PCM ou IMA ADPCM) ou, pour le web,
   `audio/webm`/`audio/ogg` (MediaRecorder). Le serveur stocke l'original et transcode
   en pivot. Durée max vérifiée après décodage (`ffprobe`).
@@ -155,9 +155,8 @@ et `postgresql://dagda:dagda@localhost:5432/san` (serveur de dev). ffmpeg dans `
   `{config_hash, config}` à la racine ; un agent non visible ou inconnu → `403
   agent_not_visible` (l'admin reçoit `400`). Les champs absents d'une entrée ne sont pas touchés.
 - **Curseurs** : un `ack` supérieur au dernier identifiant attribué est ramené à celui-ci
-  (on n'acquitte pas d'événements futurs). Pas de curseur initial à l'activation : un viewer
-  qui commence à suivre un agent reçoit les événements non expirés de celui-ci (6 h / 7 j),
-  ce qui déroge à « pas l'historique » de la spec §9.2.
+  (on n'acquitte pas d'événements futurs). Le curseur initial et le début du suivi (écart de
+  la phase 2) sont réglés en phase 3, voir §11.
 - **SSE** : au départ `hello {config_hash}` ; les événements repartent de `Last-Event-ID`,
   à défaut du curseur acquitté du viewer ; `event: config {config_hash}` quand la config
   change, suivi de l'état des agents nouvellement suivis ; le flux se ferme si le viewer
@@ -170,3 +169,75 @@ et `postgresql://dagda:dagda@localhost:5432/san` (serveur de dev). ffmpeg dans `
   clip n'est pas `ready`.
 - **Purge** : en plus de la spec §9.3, les curseurs de viewers/agents disparus sont
   supprimés ; un clip orphelin n'est supprimé qu'après 1 h (il peut précéder son événement).
+
+## 11. Précisions de la phase 3 (audio)
+
+- **Modules** : `server/src/san/audio/` (`formats` constantes pures, `ffmpeg` wrappers
+  `spawn`, `service` stockage/renditions, `tts` moteurs, `tts-queue` file de jobs) ; routes
+  dans `routes/voice.ts`.
+- **ffmpeg / ffprobe** : `child_process.spawn` sans shell, arguments en tableau, délai de 30 s
+  (`mediaTimeoutMs`), 2 processus simultanés au plus, `-protocol_whitelist file`. Le
+  **démultiplexeur d'entrée est imposé** par le `Content-Type` (`-f wav|mp3|ogg|matroska`) :
+  aucun sondage de format, donc pas de playlist ou de script pris pour de l'audio. Un fichier
+  qui ne correspond pas à son type est rejeté (`400 invalid_audio`). Le décodage est borné à
+  `max + 1` s (`-t`) puis la durée est mesurée par `ffprobe` sur le **pivot**.
+- **Limites et codes** : corps ≤ 2 Mo (`express.raw` sur la route, `413`) ; type hors liste
+  `415 unsupported_media_type` (avant lecture du corps) ; audio illisible ou vide `400
+  invalid_audio` ; durée > 30 s (agent) ou > `audio_in.max_duration_s` (viewer, plafonné à 30 s,
+  30 s si non déclaré) `413 audio_too_long`. Types acceptés : agent `audio/wav|mpeg|ogg` ;
+  viewer `audio/wav|webm|ogg` (paramètres tolérés : `audio/webm;codecs=opus`). `audio/mp4`
+  (Safari) n'est pas accepté.
+- **Disposition** : `DATA_DIR/clips/<clip>/original.<ext>`, `wav-16000.wav` (pivot, rendition
+  `wav`/16000) et `<format>-<rate>.<ext>`. Les chemins en base sont **relatifs** à `DATA_DIR`.
+  Le pivot n'est jamais reconstruit (produit à la réception) ; les autres renditions sont
+  reproduites à la demande si le fichier a disparu. Production dédupliquée par clé
+  `(clip, format, fréquence)` dans le processus (une seule instance, DESIGN §3), écriture dans
+  un fichier temporaire puis `rename`.
+- **Renditions** : `pcm_s16le` et `ima_adpcm` (WAV `adpcm_ima_wav`) à toute fréquence 4000-48000
+  (en pratique 8000/16000), `wav` 16 kHz, `mp3` (libmp3lame 48 kbit/s), `ogg` (Opus 32 kbit/s,
+  fréquences 8/12/16/24/48 kHz). `chooseAudioFormat` ramène à 16 kHz une fréquence que mp3/ogg ne
+  savent pas produire. À l'émission (TTS ou `agent/voice`), le pivot et la rendition de chaque
+  viewer actif qui voit l'agent (règle de permission, abonnement ignoré) sont produits avant
+  l'inscription de l'événement : `clip.size` est présent dans la synchronisation.
+- **Formats agent** (`GET /agent/voice/:clip?format=`) : `wav` (défaut), `mp3`, `ogg`, toujours
+  mono 16 kHz. Seulement un clip d'un événement `to_agent` adressé à cet agent (`404` sinon,
+  `410` si l'événement a expiré). Un clip reçu d'un viewer n'est donc pas lisible par un autre agent.
+- **`GET /viewer/voice/:clip`** : accès si un événement `to_viewers` référence le clip pour un
+  agent que le viewer **voit** (règle de permission ; l'abonnement n'est pas exigé pour ne pas
+  casser un téléchargement en cours). `404` sinon, `410` si expiré, `406 no_audio_output` sans
+  `audio_out`. En-têtes : `Content-Type` (`audio/wav`, `audio/mpeg`, `audio/ogg`),
+  `Content-Length`, `Cache-Control: private, max-age=3600`, `Accept-Ranges: bytes`, `ETag`,
+  `X-Audio-Format: <format>; rate=<hz>` ; `Range` simple géré (`206`).
+- **`POST /viewer/voice?to=<agent>`** : le droit (`can_send_voice` effectif = règle + `audio_in`
+  déclaré, agent visible) est vérifié **avant** la lecture du corps ; `403 voice_not_allowed` pour
+  tous les refus, agent inconnu compris (pas d'énumération). `?to` absent : `400`. Expiration 7 jours.
+- **TTS** : `TTS_ENGINE`/`TTS_URL` comme en §6 (`piper` sans `TTS_URL` est une erreur de démarrage).
+  `POST /agent/say` crée le clip `pending` et un job dans la table `tts_jobs`
+  (`clip_id, agent_slug, text, priority, ttl_s`, migration `0002`), puis répond `202`. La file est
+  cette table : une boucle en mémoire de concurrence 1 prend le plus ancien job, synthétise,
+  décode en pivot (même limite de 30 s qu'un upload), prépare les renditions et **insère
+  l'événement** (texte source, priorité, durée de vie ≤ 7 j). Au démarrage (`listen()`) les jobs
+  restants sont repris ; la reprise est idempotente (pas d'événement en double). Échec : clip
+  `failed`, job supprimé, fichiers supprimés, aucun événement ; le clip `failed` est supprimé par la
+  purge après 1 h. L'agent n'a pas de route pour consulter le statut du clip (`202` seulement).
+  `FakeTts` : sinusoïde ffmpeg 880 Hz à 22 050 Hz mono, durée 0,05 s par caractère (0,5 à 25 s).
+  `PiperHttpTts` : délai `ttsTimeoutMs` (60 s), réponse ≤ 32 Mo vérifiée comme WAV (RIFF/WAVE).
+- **Purge** : un clip est supprimé (ligne, renditions en cascade, répertoire) s'il n'est référencé
+  par aucun événement, a plus d'1 h et n'a pas de job TTS en cours ; cela couvre les clips
+  `failed`. Un clip `pending` avec job n'est jamais purgé.
+- **`GET /api/v1/health`** : public, hors authentification et limite de débit ; `SELECT 1` →
+  `200 {"ok":true}`, sinon `503 {"ok":false}`. Utilisé par le `HEALTHCHECK` du `Dockerfile`.
+- **Curseur initial** (SPEC §9.2, écart de la phase 2 résorbé) : à l'activation d'un viewer
+  (`activateViewer`) et à l'enregistrement d'un viewer web, le curseur est initialisé au dernier
+  identifiant d'événement attribué.
+- **Début du suivi** : migration `0003` : `subscriptions.subscribed_at` (instant où l'abonnement
+  passe de faux à vrai, remis à jour à chaque nouvel abonnement) et `permission_rules.created_at`.
+  À la lecture, un événement n'est livré que s'il date d'après le début du suivi de son agent :
+  `subscribed_at` en mode `manual`, première règle qui couvre l'agent (`min(created_at)`) en mode
+  `auto`. Le passage `auto` → `manual` reprend ce début pour ne perdre aucun événement. Limites :
+  élargir le motif d'une règle existante (`PATCH`) ou ajouter un agent à un groupe déjà couvert ne
+  remet pas le début du suivi à zéro, les événements non expirés de ces agents (6 h / 7 j) peuvent
+  donc être livrés ; l'état courant (`states`) est, lui, toujours livré. Les lignes antérieures à la
+  migration reçoivent `first_seen_at` / la création du viewer.
+- **Tests** : `test/audio.ts` génère les fixtures avec `ffmpeg -f lavfi -i sine=…` ; la fixture
+  d'application utilise un `DATA_DIR` temporaire et `FakeTts` (`app.tts.engine` remplaçable).

@@ -222,9 +222,13 @@ export async function applySubscriptions(sql: Sql, viewerId: string, patches: Su
     }
     for (const patch of patches) {
         await sql.run(
-            `INSERT INTO subscriptions (viewer_id, agent_slug, subscribed, position, muted)
-             VALUES ($1, $2, COALESCE($3::boolean, false), $4::int, COALESCE($5::boolean, false))
+            `INSERT INTO subscriptions (viewer_id, agent_slug, subscribed, subscribed_at, position, muted)
+             VALUES ($1, $2, COALESCE($3::boolean, false), CASE WHEN COALESCE($3::boolean, false) THEN clock_timestamp() END,
+                     $4::int, COALESCE($5::boolean, false))
              ON CONFLICT (viewer_id, agent_slug) DO UPDATE SET
+                -- le suivi (re)commence quand l'abonnement passe de faux à vrai (SPEC §9.2)
+                subscribed_at = CASE WHEN COALESCE($3::boolean, subscriptions.subscribed) AND NOT subscriptions.subscribed
+                                     THEN clock_timestamp() ELSE subscriptions.subscribed_at END,
                 subscribed = COALESCE($3::boolean, subscriptions.subscribed),
                 position = CASE WHEN $6::boolean THEN $4::int ELSE subscriptions.position END,
                 muted = COALESCE($5::boolean, subscriptions.muted)`,

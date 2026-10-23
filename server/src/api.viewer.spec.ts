@@ -23,6 +23,8 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
         await t.db.runner.run(`TRUNCATE cursors`);
     });
 
+    /** Curseur du (seul) viewer ; initialisé à l'activation (SPEC §9.2) */
+    const viewerCursor = async () => (await t.db.runner.get<{ c: string }>(`SELECT last_acked_event_id::text AS c FROM cursors WHERE principal_type = 'viewer'`))?.c;
     const sync = (token: string, query = "") => t.api("GET", `/viewer/sync${query}`, { token });
     /** Carte active, règle `*`, capacités envoyées, abonnée à tout */
     async function readyCard(pattern = "*") {
@@ -416,6 +418,7 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
         it("exige un jeton de viewer ; envoie hello puis les événements en moins d'une seconde", async () => {
             const robot = await createAgent(t, cookie, "robot", "Robot");
             const card = await readyCard();
+            const cursorBefore = await viewerCursor();
             expect((await openSse(t, "")).status).toBe(401);
             expect((await openSse(t, robot.token)).status).toBe(403);
 
@@ -436,7 +439,7 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
                 // le même format que sync, et le curseur n'a pas bougé
                 const viaSync = await sync(card.token);
                 expect(viaSync.json.events[0]).toEqual(received.data);
-                expect(await t.db.runner.get(`SELECT 1 AS x FROM cursors WHERE principal_type = 'viewer'`)).toBeNull();
+                expect(await viewerCursor()).toBe(cursorBefore);
 
                 // état d'un agent suivi
                 await t.api("POST", "/agent/state", { token: robot.token, body: { status: "working", detail: "Calcul", progress: 10 } });
@@ -502,6 +505,7 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
         it("reprise par Last-Event-ID : renvoie les événements manqués, sans faire avancer le curseur", async () => {
             const robot = await createAgent(t, cookie, "robot");
             const card = await readyCard();
+            const cursorBefore = await viewerCursor();
             const ids: number[] = [];
             for (const text of ["un", "deux", "trois"]) {
                 ids.push((await t.api("POST", "/agent/nudge", { token: robot.token, body: { text } })).json.id);
@@ -518,7 +522,7 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
             } finally {
                 sse.close();
             }
-            expect(await t.db.runner.get(`SELECT 1 AS x FROM cursors WHERE principal_type = 'viewer'`)).toBeNull();
+            expect(await viewerCursor()).toBe(cursorBefore);
 
             // sans Last-Event-ID : repart du curseur acquitté
             await t.api("POST", "/viewer/ack", { token: card.token, body: { up_to: ids[1] } });

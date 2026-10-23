@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { SanConfig } from "./config";
+import { advanceCursor } from "./cursors";
 import { inTransaction, Sql } from "./db";
 import { badRequest, conflict, notFound, tooManyRequests, upgradeRequired } from "./errors";
 import { notifyConfigChanged } from "./events";
@@ -105,6 +106,14 @@ export async function registerDevice(db: Sql, input: RegisterDeviceInput, config
     });
 }
 
+/**
+ * Curseur initial (SPEC §9.2) : un viewer qui devient actif reçoit l'état courant
+ * mais pas l'historique, son curseur démarre au dernier identifiant d'événement.
+ */
+export async function initViewerCursor(sql: Sql, viewerId: string): Promise<void> {
+    await advanceCursor(sql, "viewer", viewerId, Number.MAX_SAFE_INTEGER);
+}
+
 /** Crée un viewer `web`, actif d'emblée (SPEC §4.4) : l'utilisateur est authentifié */
 export async function createWebViewer(db: Sql, input: { capabilities: Record<string, unknown>, label?: string }): Promise<{ viewer_id: string, token: string }> {
     const { token, hash } = generateToken("web");
@@ -114,6 +123,7 @@ export async function createWebViewer(db: Sql, input: { capabilities: Record<str
          VALUES ($1, 'web', $2, 'active', $3, 'auto', $4::jsonb, now())`,
         id, input.label ?? "Navigateur web", hash, JSON.stringify(input.capabilities)
     );
+    await initViewerCursor(db, id);
     return { viewer_id: id, token };
 }
 
@@ -164,6 +174,7 @@ export async function activateViewer(db: Sql, id: string, name: string): Promise
         const existing = await getViewer(db, id);
         throw conflict(`Le viewer est « ${existing.status} » : seul un viewer en attente peut être activé.`, "not_pending");
     }
+    await initViewerCursor(db, id);
     return getViewer(db, id);
 }
 

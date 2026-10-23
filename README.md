@@ -9,10 +9,11 @@ Construit sur le framework [Dagda](../dagda).
 
 ## Avancement
 
-Phase 2 sur 4 : en plus de la phase 1 (squelette, enrôlement, `agent/state|nudge`,
-administration), permissions à motifs avec aperçu d'impact (`?dry_run=1`), abonnements
-et configuration, capacités, `viewer/sync`, flux SSE, boîte `agent/inbox` en long-poll,
-bus `LISTEN/NOTIFY` et purge. Audio/TTS (phase 3) et client web (phase 4) : à venir.
+Phase 3 sur 4 : en plus des phases 1-2 (squelette, enrôlement, `agent/state|nudge`,
+administration, permissions à motifs avec aperçu d'impact, abonnements et configuration,
+capacités, `viewer/sync`, flux SSE, `agent/inbox` en long-poll, bus `LISTEN/NOTIFY`, purge),
+l'audio : TTS (Piper ou bip de test), envoi de fichiers, messages vocaux viewer → agent,
+transcodage ffmpeg mis en cache, route `/health`, curseur initial. Client web (phase 4) : à venir.
 
 ## Structure
 
@@ -62,9 +63,10 @@ Sur une base vide, Dagda crée le compte administrateur `admin` / `admin` : le c
 Variables Dagda : `APP_PORT`, `APP_BASE_URL`, `APP_DATABASE_URL`, `APP_SECRET`.
 Variables SAN : `SAN_REGISTER_RATE_PER_HOUR` (5), `SAN_MAX_PENDING` (20),
 `SAN_TRUST_PROXY` (1), `SAN_RATE_PER_MINUTE` (300), `SAN_AUTH_FAILURES_PER_MINUTE` (30),
-`DATA_DIR` (`./data`). Voir `.env.example`.
+`DATA_DIR` (`./data`), `TTS_ENGINE` (`piper` si `TTS_URL` défini, sinon `fake`), `TTS_URL`,
+`FFMPEG_PATH` / `FFPROBE_PATH`. Voir `.env.example`.
 
-## API (phases 1 et 2)
+## API (phases 1 à 3)
 
 Préfixe `/api/v1`. Erreurs JSON `{ "error": "code", "message": "…" }`.
 
@@ -75,8 +77,18 @@ Préfixe `/api/v1`. Erreurs JSON `{ "error": "code", "message": "…" }`.
 | `POST /web/register` | session Dagda |
 | `GET /agent/inbox?ack=&wait=` | jeton `agt_` |
 | `GET /viewer/sync`, `POST /viewer/ack`, `PUT /viewer/capabilities`, `GET/PUT /viewer/config`, `GET /viewer/events` (SSE) | jeton `dev_` / `web_` actif |
+| `GET /health` | aucune : `200 {ok:true}` après `SELECT 1`, `503` sinon |
+| `POST /agent/say` `{text≤500, priority?, ttl_s?}` | jeton `agt_` : `202 {clip_id, status:"pending"}` (TTS, l'événement n'est inscrit qu'une fois le clip prêt) |
+| `POST /agent/voice?priority=&ttl_s=&text=` | jeton `agt_` : corps binaire `audio/wav\|mpeg\|ogg` ≤ 2 Mo, ≤ 30 s : `201 {clip_id, event_id}` |
+| `GET /agent/voice/:clip?format=wav\|mp3\|ogg` | jeton `agt_` : message vocal reçu d'un viewer (WAV 16 kHz par défaut) |
+| `GET /viewer/voice/:clip` | jeton `dev_` / `web_` : clip dans le format choisi selon les capacités (`Range` géré) |
+| `POST /viewer/voice?to=<agent>` | jeton `dev_` / `web_` avec `can_send_voice` et `audio_in` : corps `audio/wav` (PCM ou IMA ADPCM), `audio/webm`, `audio/ogg` : `201 {clip_id, event_id}` |
 | `/admin/agents`, `/admin/groups`, `/admin/viewers` (+ `activate`, `revoke`, `token`, `members`) | session Dagda |
 | `/admin/viewers/:id/rules`, `/admin/rules/:id` (+ `coverage`), `/admin/viewers/:id/access/:agent`, `/admin/viewers/:id/subscriptions` | session Dagda |
+
+Codes audio : `413` corps > 2 Mo ou clip trop long (`audio_too_long`), `415` type refusé,
+`400 invalid_audio` fichier illisible, `403 voice_not_allowed`, `404`/`410` clip inconnu/expiré,
+`406 no_audio_output`. Détails des formats et en-têtes : [`docs/DESIGN.md`](docs/DESIGN.md) §5 et §11.
 
 Les routes d'administration qui modifient la couverture acceptent `?dry_run=1`
 (`{dry_run, gained, lost}`, rien n'est modifié) ; sinon la réponse inclut `impact`.

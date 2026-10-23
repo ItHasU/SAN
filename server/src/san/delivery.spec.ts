@@ -73,7 +73,7 @@ describe.runIf(inject("databaseAvailable"))("livraison : filtrage, pagination, c
     const read = async (viewerId = "v1", after = 0, limit = 50) => {
         const config = await computeConfig(sql(), viewerId);
         const caps = (await sql().get<any>(`SELECT capabilities FROM viewers WHERE id = $1`, viewerId))!.capabilities;
-        return fetchViewerEvents(sql(), config, caps, after, limit);
+        return fetchViewerEvents(sql(), viewerId, config, caps, after, limit);
     };
 
     describe("filtrage à la lecture", () => {
@@ -108,7 +108,10 @@ describe.runIf(inject("databaseAvailable"))("livraison : filtrage, pagination, c
             await applySubscriptions(sql(), "v1", [{ agent: "a1", subscribed: false }], "bad_request");
             expect((await read()).events).toHaveLength(0);
             await applySubscriptions(sql(), "v1", [{ agent: "a1", subscribed: true }], "bad_request");
-            expect((await read()).events).toHaveLength(1);
+            // se réabonner ne rend pas l'historique (SPEC §9.2) : le suivi recommence maintenant
+            expect((await read()).events).toHaveLength(0);
+            await nudge("a1", "n2");
+            expect((await read()).events.map((e) => e.text)).toEqual(["n2"]);
             await sql().run(`DELETE FROM permission_rules`);
             expect((await read()).events).toHaveLength(0);
         });
