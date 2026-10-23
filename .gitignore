@@ -4,3 +4,8 @@
 **/.DS_Store
 .env
 /data/
+/pgdata/
+/voices/
+.env.*
+!.env.example
+!.env.prod.example

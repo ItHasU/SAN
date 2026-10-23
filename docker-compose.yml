@@ -1,0 +1,64 @@
+# Production : SAN derrière un reverse proxy existant (réseau Docker externe).
+#
+#   cp .env.prod.example .env      # puis renseigner les valeurs
+#   docker compose pull && docker compose up -d
+#
+# Sans reverse proxy : docker-compose.standalone.yml (port publié directement).
+# Développement local : docker-compose.dev.yml (PostgreSQL seul).
+# Guide complet : deploy/README.md
+
+services:
+  api:
+    image: ghcr.io/ithasu/san:${SAN_IMAGE_TAG:-main}
+    # Pour construire sur place plutôt que tirer l'image : le contexte doit
+    # contenir dagda/ et SAN/ côte à côte (ici le dossier parent de ce dépôt).
+    #   docker compose build api
+    build:
+      context: ..
+      dockerfile: SAN/Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_PORT: "3000"
+      APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL requis}
+      APP_DATABASE_URL: postgresql://${DB_USER:-san}:${DB_PASSWORD:?DB_PASSWORD requis}@db:5432/${DB_NAME:-san}
+      APP_SECRET: ${APP_SECRET:?APP_SECRET requis}
+      DATA_DIR: /data
+      TTS_URL: http://tts:5000
+      SAN_TRUST_PROXY: ${SAN_TRUST_PROXY:-1}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/data
+    networks: [proxy, internal]
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-san}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD requis}
+      POSTGRES_DB: ${DB_NAME:-san}
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  tts:
+    image: ghcr.io/ithasu/san-tts:${SAN_IMAGE_TAG:-main}
+    build: ./tts
+    restart: unless-stopped
+    volumes:
+      - ./voices:/voices
+    networks: [internal]
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}
+  internal:
+    internal: true
