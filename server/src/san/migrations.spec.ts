@@ -16,7 +16,7 @@ describe.runIf(inject("databaseAvailable"))("migrations SAN", () => {
 
     it("crée le schéma de la spec §5 (sans users) et ne se rejoue pas", async () => {
         const first = await applyMigrations(db.runner, APP_MODEL, SAN_MIGRATIONS, "app");
-        expect(first).toEqual(["0001-san-schema"]);
+        expect(first).toEqual(["0001-san-schema", "0002-tts-jobs", "0003-tracking-start"]);
         expect(await applyMigrations(db.runner, APP_MODEL, SAN_MIGRATIONS, "app")).toEqual([]);
 
         const tables = await db.runner.all<{ table_name: string }>(

@@ -23,6 +23,25 @@ export interface SanConfig {
     sseHeartbeatMs: number;
     /** Répertoire des fichiers audio (`DATA_DIR`) */
     dataDir: string;
+    /** Taille maximale d'un corps audio (SPEC §14 : 2 Mo) */
+    audioLimit: string;
+    /** Durée maximale d'un clip, en secondes (SPEC §9.4 : 30 s) */
+    maxClipDurationS: number;
+    /** Longueur maximale d'un texte TTS (SPEC §9.4 : 500 caractères) */
+    ttsMaxChars: number;
+    /** Moteur TTS (`TTS_ENGINE`, DESIGN §6) : `piper` si `TTS_URL` est défini, sinon `fake` */
+    ttsEngine: "piper" | "fake";
+    /** URL du service TTS (`TTS_URL`) */
+    ttsUrl: string | null;
+    /** Délai maximal d'une synthèse, en millisecondes */
+    ttsTimeoutMs: number;
+    /** Chemins de ffmpeg / ffprobe (`FFMPEG_PATH`, `FFPROBE_PATH`) */
+    ffmpegPath: string;
+    ffprobePath: string;
+    /** Délai maximal d'un appel à ffmpeg / ffprobe, en millisecondes */
+    mediaTimeoutMs: number;
+    /** Nombre maximal de processus ffmpeg simultanés */
+    mediaConcurrency: number;
 }
 
 export const DEFAULT_SAN_CONFIG: SanConfig = {
@@ -35,7 +54,17 @@ export const DEFAULT_SAN_CONFIG: SanConfig = {
     pendingMaxAgeDays: 7,
     purgeIntervalMs: 10 * 60 * 1000,
     sseHeartbeatMs: 25_000,
-    dataDir: "./data"
+    dataDir: "./data",
+    audioLimit: "2mb",
+    maxClipDurationS: 30,
+    ttsMaxChars: 500,
+    ttsEngine: "fake",
+    ttsUrl: null,
+    ttsTimeoutMs: 60_000,
+    ffmpegPath: "ffmpeg",
+    ffprobePath: "ffprobe",
+    mediaTimeoutMs: 30_000,
+    mediaConcurrency: 2
 };
 
 function positiveInt(name: string, raw: string | undefined, fallback: number): number {
@@ -65,6 +94,14 @@ function parseTrustProxy(raw: string | undefined, fallback: number | boolean): n
 /** Lit la configuration depuis `env`, les valeurs de `overrides` l'emportant (tests) */
 export function readSanConfig(env: NodeJS.ProcessEnv = process.env, overrides: Partial<SanConfig> = {}): SanConfig {
     const d = DEFAULT_SAN_CONFIG;
+    const ttsUrl = env["TTS_URL"] || null;
+    const engine = env["TTS_ENGINE"] || (ttsUrl != null ? "piper" : "fake");
+    if (engine !== "piper" && engine !== "fake") {
+        throw new Error(`TTS_ENGINE doit valoir « piper » ou « fake » (reçu « ${engine} »).`);
+    }
+    if (engine === "piper" && ttsUrl == null) {
+        throw new Error("TTS_ENGINE=piper exige TTS_URL.");
+    }
     return {
         ...d,
         registerRatePerHour: positiveInt("SAN_REGISTER_RATE_PER_HOUR", env["SAN_REGISTER_RATE_PER_HOUR"], d.registerRatePerHour),
@@ -73,6 +110,10 @@ export function readSanConfig(env: NodeJS.ProcessEnv = process.env, overrides: P
         ratePerMinute: positiveInt("SAN_RATE_PER_MINUTE", env["SAN_RATE_PER_MINUTE"], d.ratePerMinute),
         authFailuresPerMinute: positiveInt("SAN_AUTH_FAILURES_PER_MINUTE", env["SAN_AUTH_FAILURES_PER_MINUTE"], d.authFailuresPerMinute),
         dataDir: env["DATA_DIR"] || d.dataDir,
+        ttsEngine: engine,
+        ttsUrl,
+        ffmpegPath: env["FFMPEG_PATH"] || d.ffmpegPath,
+        ffprobePath: env["FFPROBE_PATH"] || d.ffprobePath,
         ...overrides
     };
 }

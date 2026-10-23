@@ -131,5 +131,30 @@ export const SAN_MIGRATIONS: Migration[] = [
                     PRIMARY KEY (principal_type, principal_id)
                 )`);
         }
+    },
+    {
+        // Phase 3 : file de jobs TTS (texte source, priorité, durée de vie d'un clip `pending`)
+        id: "0002-tts-jobs",
+        up: async (tools) => {
+            await tools.run(`
+                CREATE TABLE tts_jobs (
+                    clip_id    text PRIMARY KEY REFERENCES voice_clips ON DELETE CASCADE,
+                    agent_slug text NOT NULL REFERENCES agents ON DELETE CASCADE,
+                    text       text NOT NULL,
+                    priority   text,
+                    ttl_s      integer NOT NULL,
+                    created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+                )`);
+        }
+    },
+    {
+        // Début du suivi d'un agent par un viewer (SPEC §9.2 : pas d'historique à l'abonnement)
+        id: "0003-tracking-start",
+        up: async (tools) => {
+            await tools.run(`ALTER TABLE subscriptions ADD COLUMN subscribed_at timestamptz`);
+            await tools.run(`UPDATE subscriptions SET subscribed_at = first_seen_at WHERE subscribed`);
+            await tools.run(`ALTER TABLE permission_rules ADD COLUMN created_at timestamptz NOT NULL DEFAULT clock_timestamp()`);
+            await tools.run(`UPDATE permission_rules r SET created_at = v.created_at FROM viewers v WHERE v.id = r.viewer_id`);
+        }
     }
 ];
