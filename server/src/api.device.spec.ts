@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
 import { PAIRING_CODE_RE } from "./san/ids";
+import { runPeriodicTasks } from "./san/purge";
 import { createTestApp, TestApp } from "./test/app.fixture";
 import { activeDevice, CAPS, createAgent, registerDevice, resetData } from "./test/helpers";
 
@@ -118,6 +119,18 @@ describe.runIf(inject("databaseAvailable"))("API /device", () => {
             const revoked = await t.api("GET", "/device/status", { token: device.token });
             expect(revoked.status).toBe(401);
             expect(revoked.json.error).toBe("unauthorized");
+        });
+
+        it("la purge des demandes de plus de 7 jours invalide le jeton (401) et libère le matériel", async () => {
+            const stale = await registerDevice(t, "hw-stale");
+            const fresh = await registerDevice(t, "hw-fresh");
+            await t.db.runner.run(`UPDATE viewers SET pending_since = now() - interval '8 days' WHERE id = $1`, stale.viewer_id);
+
+            expect(await runPeriodicTasks(t.db.runner, { pendingMaxAgeDays: 7 })).toEqual({ purgedPendingViewers: 1 });
+            expect((await t.api("GET", "/device/status", { token: stale.token })).status).toBe(401);
+            expect((await t.api("GET", "/device/status", { token: fresh.token })).json).toEqual({ status: "pending" });
+            // la carte peut se réenregistrer
+            expect((await registerDevice(t, "hw-stale")).status).toBe("pending");
         });
 
         it("répond 403 viewer_pending sur toute autre route tant que le viewer est pending", async () => {
