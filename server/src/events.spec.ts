@@ -67,7 +67,7 @@ describe.runIf(inject("databaseAvailable"))("insertion d'événements", () => {
             const received = new Promise<{ id: number }>((resolve) => {
                 listener.on("notification", (message) => {
                     const payload = JSON.parse(message.payload ?? "{}");
-                    if (payload.type === "event" && payload.agent === "a1" && payload.text === undefined) {
+                    if (payload.schema === db.schema && payload.type === "event" && payload.agent === "a1") {
                         resolve(payload);
                     }
                 });

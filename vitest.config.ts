@@ -83,6 +83,9 @@ export default defineConfig({
                     root: "./server",
                     environment: "node",
                     include: ["src/**/*.spec.ts"],
+                    // Suites run in parallel against one PostgreSQL server; a
+                    // test chaining many queries can exceed the 5 s default.
+                    testTimeout: 30_000,
                     // The framework's fixture, reused rather than copied: one
                     // implementation of "a scratch schema per suite".
                     globalSetup: ["../node_modules/@dagda/server/src/test/pg.globalsetup.ts"]
