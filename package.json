@@ -1,0 +1,37 @@
+{
+  "name": "@san/workspace",
+  "version": "0.1.0",
+  "description": "SAN — afficheur d'état des agents, construit sur le framework Dagda",
+  "author": "Matthieu Aubry",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "scripts": {
+    "clean": "rimraf -g */dist **/.tsc-build",
+    "typecheck": "tsc -b shared client server",
+    "build": "npm run build --workspaces --if-present",
+    "watch": "npm run watch -w @san/client & npm run watch -w @san/server & wait",
+    "dev": "npm run build && (npm run watch -w @san/client & npm run watch -w @san/server & npm run dev -w @san/server & wait)",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@dagda/build": "file:../dagda/packages/build",
+    "css-loader": "=6.11.0",
+    "html-loader": "=4.2.0",
+    "html-webpack-plugin": "=5.6.3",
+    "jsdom": "=29.1.1",
+    "rimraf": "=5.0.10",
+    "style-loader": "=3.3.4",
+    "ts-loader": "=9.5.2",
+    "tsconfig-paths-webpack-plugin": "=4.2.0",
+    "typescript": "=5.8.3",
+    "vitest": "=4.1.10",
+    "webpack": "=5.99.5",
+    "webpack-cli": "=5.1.4"
+  },
+  "workspaces": [
+    "shared",
+    "client",
+    "server"
+  ]
+}

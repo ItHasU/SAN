@@ -1,0 +1,6 @@
+**/node_modules/
+**/.tsc-build/
+**/dist/
+**/.DS_Store
+.env
+/data/

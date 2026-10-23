@@ -1,0 +1,25 @@
+{
+  "name": "@san/server",
+  "version": "0.1.0",
+  "description": "Serveur SAN (API agents / viewers / administration)",
+  "author": "Matthieu Aubry",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "build": "webpack",
+    "watch": "webpack --watch",
+    "start": "node --env-file-if-exists=../.env dist/main.js",
+    "dev": "node --watch --env-file-if-exists=../.env dist/main.js"
+  },
+  "dependencies": {
+    "@dagda/server": "file:../../dagda/packages/server",
+    "@dagda/shared": "file:../../dagda/packages/shared",
+    "@san/shared": "*",
+    "express": "=5.1.0",
+    "pg": "=8.14.1"
+  },
+  "devDependencies": {
+    "@dagda/build": "file:../../dagda/packages/build",
+    "@types/express": "=5.0.1",
+    "@types/pg": "=8.11.13"
+  }
+}

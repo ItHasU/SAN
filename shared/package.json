@@ -1,0 +1,17 @@
+{
+  "name": "@san/shared",
+  "version": "0.1.0",
+  "description": "Contrat partagé entre le client et le serveur SAN",
+  "author": "Matthieu Aubry",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "dependencies": {
+    "@dagda/shared": "file:../../dagda/packages/shared"
+  },
+  "devDependencies": {
+    "@dagda/build": "file:../../dagda/packages/build"
+  }
+}

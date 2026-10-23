@@ -1,0 +1,19 @@
+{
+  "name": "@san/client",
+  "version": "0.1.0",
+  "description": "Application web SAN (tableau de bord et administration)",
+  "author": "Matthieu Aubry",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "build": "webpack",
+    "watch": "webpack --watch"
+  },
+  "dependencies": {
+    "@dagda/client": "file:../../dagda/packages/client",
+    "@dagda/shared": "file:../../dagda/packages/shared",
+    "@san/shared": "*"
+  },
+  "devDependencies": {
+    "@dagda/build": "file:../../dagda/packages/build"
+  }
+}

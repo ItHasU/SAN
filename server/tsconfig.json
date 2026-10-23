@@ -1,0 +1,21 @@
+{
+    "extends": "@dagda/build/tsconfig-server.json",
+    "compilerOptions": {
+        "baseUrl": ".",
+        "outDir": "./.tsc-build/",
+    },
+    "include": [
+        "./src/**/*.ts"
+    ],
+    "references": [
+        {
+            "path": "../shared"
+        },
+        {
+            "path": "../../dagda/packages/shared"
+        },
+        {
+            "path": "../../dagda/packages/server"
+        }
+    ]
+}
