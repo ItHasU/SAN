@@ -1,0 +1,11 @@
+# Lu par BuildKit à côté de SAN/Dockerfile ; les motifs sont relatifs au
+# contexte (dossier parent contenant dagda/ et SAN/).
+**/node_modules
+**/dist
+**/.tsc-build
+**/.git
+**/.env
+**/.env.*
+SAN/data
+SAN/pgdata
+SAN/voices

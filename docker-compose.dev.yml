@@ -1,0 +1,21 @@
+# Développement local : PostgreSQL seul sur 5432 (le serveur tourne via `npm run dev`).
+#   docker compose -f docker-compose.dev.yml up -d
+# URL : postgresql://dagda:dagda@localhost:5432/san (cf. .env.example)
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: dagda
+      POSTGRES_PASSWORD: dagda
+      POSTGRES_DB: san
+    ports:
+      - "5432:5432"
+    volumes:
+      - san-dev-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dagda -d san"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  san-dev-pg:
