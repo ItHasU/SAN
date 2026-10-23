@@ -38,7 +38,8 @@ structurante doit y être ajoutée.
 ## 3. Organisation du serveur
 
 - L'API `/api/v1/*` (agents, cartes, viewers) est un `express.Router` monté sur
-  `this._app` (`protected` dans `AbstractServerApp`) **avant** le static, avec ses
+  `this._publicRouter` (ajout Dagda, branche `feat/san-support` : routeur placé avant
+  les parseurs de corps globaux et la porte de session), avec ses
   propres middlewares : authentification Bearer, limites de taille (JSON 64 Ko,
   audio 2 Mo, `express.raw`), limite de débit en mémoire. Elle n'utilise pas la
   session Dagda, sauf :
@@ -97,8 +98,9 @@ structurante doit y être ajoutée.
 - Formats agent : `wav` (16 kHz), `mp3`, `ogg` (Opus).
 - Cache : `voice_renditions`, fichiers sous `DATA_DIR/clips/<clip>/<format>-<rate>.<ext>`.
 - **TTS** : interface `TtsEngine { synthesize(text): Promise<Buffer /* wav */> }`.
-  Implémentations : `PiperHttpTts` (`TTS_URL`, `POST /` JSON `{"text": …}` → WAV,
-  serveur `python -m piper.http_server` de `piper-tts`) et `FakeTts` (bip ffmpeg de
+  Implémentations : `PiperHttpTts` (`TTS_URL`, `POST /` JSON `{"text": …}` → WAV PCM
+  mono à la fréquence de la voix, 22 050 Hz pour `fr_FR-siwis-medium` ; serveur maison
+  `tts/server.py` autour de `piper-tts==1.8.0`, voir `tts/README.md`) et `FakeTts` (bip ffmpeg de
   durée ∝ texte) sélectionnée par `TTS_ENGINE=fake` (tests, dev sans Piper).
   File de jobs en mémoire, concurrence 1, reprise des clips `pending` au démarrage.
 
