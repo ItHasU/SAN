@@ -9,9 +9,10 @@ Construit sur le framework [Dagda](../dagda).
 
 ## Avancement
 
-Phase 1 sur 4 : squelette, migrations, jetons, router `/api/v1`, enrôlement des
-cartes, `agent/state`, `agent/nudge`, administration (agents, groupes, viewers).
-Viewers (`/viewer/*`), permissions, audio/TTS et client web : phases suivantes.
+Phase 2 sur 4 : en plus de la phase 1 (squelette, enrôlement, `agent/state|nudge`,
+administration), permissions à motifs avec aperçu d'impact (`?dry_run=1`), abonnements
+et configuration, capacités, `viewer/sync`, flux SSE, boîte `agent/inbox` en long-poll,
+bus `LISTEN/NOTIFY` et purge. Audio/TTS (phase 3) et client web (phase 4) : à venir.
 
 ## Structure
 
@@ -63,7 +64,7 @@ Variables SAN : `SAN_REGISTER_RATE_PER_HOUR` (5), `SAN_MAX_PENDING` (20),
 `SAN_TRUST_PROXY` (1), `SAN_RATE_PER_MINUTE` (300), `SAN_AUTH_FAILURES_PER_MINUTE` (30),
 `DATA_DIR` (`./data`). Voir `.env.example`.
 
-## API (phase 1)
+## API (phases 1 et 2)
 
 Préfixe `/api/v1`. Erreurs JSON `{ "error": "code", "message": "…" }`.
 
@@ -72,7 +73,13 @@ Préfixe `/api/v1`. Erreurs JSON `{ "error": "code", "message": "…" }`.
 | `POST /device/register`, `GET /device/status` | aucune / jeton `dev_` (même pending) |
 | `POST /agent/state`, `POST /agent/nudge` | jeton `agt_` |
 | `POST /web/register` | session Dagda |
+| `GET /agent/inbox?ack=&wait=` | jeton `agt_` |
+| `GET /viewer/sync`, `POST /viewer/ack`, `PUT /viewer/capabilities`, `GET/PUT /viewer/config`, `GET /viewer/events` (SSE) | jeton `dev_` / `web_` actif |
 | `/admin/agents`, `/admin/groups`, `/admin/viewers` (+ `activate`, `revoke`, `token`, `members`) | session Dagda |
+| `/admin/viewers/:id/rules`, `/admin/rules/:id` (+ `coverage`), `/admin/viewers/:id/access/:agent`, `/admin/viewers/:id/subscriptions` | session Dagda |
+
+Les routes d'administration qui modifient la couverture acceptent `?dry_run=1`
+(`{dry_run, gained, lost}`, rien n'est modifié) ; sinon la réponse inclut `impact`.
 
 Les actions d'administration sont écrites dans le journal d'audit Dagda
 (`system_audit_log`, `kind = 'action'`, `name = 'admin.*'`).

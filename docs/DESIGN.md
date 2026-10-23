@@ -137,3 +137,36 @@ Celles de Dagda (`APP_PORT`, `APP_BASE_URL`, `APP_DATABASE_URL`, `APP_SECRET`) p
 PostgreSQL 17 local (pas de Docker) : `sudo pg_ctlcluster 17 main start`.
 Bases : `postgresql://dagda:dagda@localhost:5432/dagda` (tests, `DAGDA_TEST_DB_URL`)
 et `postgresql://dagda:dagda@localhost:5432/san` (serveur de dev). ffmpeg dans `/usr/bin`.
+
+## 10. Précisions de la phase 2 (permissions, sync, SSE)
+
+- **Aperçu d'impact** : toute route d'administration qui peut modifier la couverture
+  s'exécute dans une transaction (`withImpact`). `?dry_run=1` annule la transaction et
+  répond `{dry_run: true, gained, lost}` ; sinon la réponse normale porte `impact:
+  {gained, lost}`. Un élément est `{viewer, viewer_name, agent}`, calculé entre viewers
+  `active` et agents non révoqués. Les suppressions (`DELETE /admin/agents/:slug?purge=true`,
+  `DELETE /admin/groups/:slug`, `DELETE /admin/rules/:id`) répondent `200 {deleted: true,
+  impact}` et non plus `204`.
+- **Hash de config et marqueur `new`** : `GET /viewer/config` crée les lignes manquantes
+  (`subscribed=false`) mais renvoie les marqueurs `new` de cette consultation ; son
+  `config_hash` est celui de l'état persisté (où `new` vaut false), le même que verra la
+  synchronisation suivante et que le viewer renverra en `base_hash`. `sync` ne crée jamais de ligne.
+- **`PUT /viewer/config`** : `base_hash` obligatoire ; `409 config_conflict` avec
+  `{config_hash, config}` à la racine ; un agent non visible ou inconnu → `403
+  agent_not_visible` (l'admin reçoit `400`). Les champs absents d'une entrée ne sont pas touchés.
+- **Curseurs** : un `ack` supérieur au dernier identifiant attribué est ramené à celui-ci
+  (on n'acquitte pas d'événements futurs). Pas de curseur initial à l'activation : un viewer
+  qui commence à suivre un agent reçoit les événements non expirés de celui-ci (6 h / 7 j),
+  ce qui déroge à « pas l'historique » de la spec §9.2.
+- **SSE** : au départ `hello {config_hash}` ; les événements repartent de `Last-Event-ID`,
+  à défaut du curseur acquitté du viewer ; `event: config {config_hash}` quand la config
+  change, suivi de l'état des agents nouvellement suivis ; le flux se ferme si le viewer
+  n'est plus actif. Heartbeat `:` toutes les 25 s (`sseHeartbeatMs`), qui relit aussi
+  la base par sécurité.
+- **Bus** : le message `NOTIFY` porte le schéma courant (`current_schema()`), le bus ignore
+  ceux d'un autre schéma. Types : `event`, `state`, `config` (`viewer: id | null`),
+  `reconnect` (émis localement après une reconnexion du `LISTEN`).
+- **`inbox`** : `from.viewer` est l'identifiant du viewer ; `clip` vaut `null` tant que le
+  clip n'est pas `ready`.
+- **Purge** : en plus de la spec §9.3, les curseurs de viewers/agents disparus sont
+  supprimés ; un clip orphelin n'est supprimé qu'après 1 h (il peut précéder son événement).
