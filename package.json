@@ -12,14 +12,18 @@
     "watch": "npm run watch -w @san/client & npm run watch -w @san/server & wait",
     "dev": "npm run build && (npm run watch -w @san/client & npm run watch -w @san/server & npm run dev -w @san/server & wait)",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "npm run build && playwright test",
+    "lint": "oxlint --deny-warnings client/src shared/src e2e"
   },
   "devDependencies": {
     "@dagda/build": "file:../dagda/packages/build",
+    "@playwright/test": "=1.62.0",
     "css-loader": "=6.11.0",
     "html-loader": "=4.2.0",
     "html-webpack-plugin": "=5.6.3",
     "jsdom": "=29.1.1",
+    "oxlint": "=1.75.0",
     "rimraf": "=5.0.10",
     "style-loader": "=3.3.4",
     "ts-loader": "=9.5.2",

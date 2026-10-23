@@ -1,0 +1,10 @@
+{
+  // Lint d'adhérence au design system de Dagda : refuse hex bruts, px bruts et
+  // polices hors système dans le code TypeScript. Même plugin que Dagda
+  // (packages/build/oxlint-adherence.mjs, atteint par le lien node_modules/@dagda/build).
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": { "correctness": "off" },
+  "jsPlugins": ["./node_modules/@dagda/build/oxlint-adherence.mjs"],
+  "rules": { "adherence/design-system": "warn" },
+  "ignorePatterns": ["**/.tsc-build/**", "**/dist/**", "e2e/.results/**"]
+}
