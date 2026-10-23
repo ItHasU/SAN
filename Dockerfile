@@ -11,25 +11,30 @@ FROM node:24-alpine AS builder
 WORKDIR /workspace
 
 COPY dagda ./dagda
+WORKDIR /workspace/dagda
 RUN --mount=type=cache,target=/root/.npm \
-    cd dagda && npm ci
+    npm ci
 
 # Le typecheck de Dagda (`tsc -b`) émet les .d.ts/.tsbuildinfo que les projets
 # composites de SAN référencent ; sans lui le build de SAN ne résout pas @dagda/*.
-RUN cd dagda && npm run typecheck
+RUN npm run typecheck
 
-COPY SAN ./SAN
+COPY SAN /workspace/SAN
+WORKDIR /workspace/SAN
 RUN --mount=type=cache,target=/root/.npm \
-    cd SAN && npm ci
-RUN cd SAN && npm run build
+    npm ci
+# hadolint ignore=DL3059
+RUN npm run build
 
 # Webpack embarque Dagda dans dist/main.js ; seules les dépendances directes de
 # SAN (express, pg...) restent externes. On retire l'outillage de build.
-RUN cd SAN && npm prune --omit=dev
+# hadolint ignore=DL3059
+RUN npm prune --omit=dev
 
 # ---- Runtime ----
 FROM node:24-alpine AS runtime
 # ffmpeg : transcodage audio (SPEC §2)
+# hadolint ignore=DL3018
 RUN apk add --no-cache ffmpeg
 WORKDIR /app
 COPY --from=builder /workspace/SAN/server/dist ./server/dist
@@ -50,7 +55,7 @@ VOLUME ["/data"]
 ENV NODE_ENV=production \
     APP_PORT=3000 \
     DATA_DIR=/data
-USER node
+USER 1000:1000
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
