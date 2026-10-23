@@ -1,0 +1,337 @@
+/* ==========================================================================
+   san.css — styles propres à SAN, par-dessus le design system de Dagda.
+
+   Même règle que `dagda-ui.css` : aucune valeur littérale de couleur, de
+   police ou de longueur en px ; tout vient des jetons de `themes.css`
+   (var(--…)). Mobile d'abord : une colonne, cibles tactiles >= 1,25 fois
+   `--control-size`, rien ne déborde horizontalement.
+   ========================================================================== */
+
+.san-page {
+    --san-touch: calc(var(--control-size) * 1.25);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    width: 100%;
+    max-width: 60rem;
+    margin: 0 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+/* cibles tactiles */
+.san-page .btn,
+.san-page .input,
+.san-dialog-body .btn,
+.san-dialog-body .input {
+    min-height: var(--san-touch, calc(var(--control-size) * 1.25));
+}
+
+.san-page .btn-icon {
+    width: var(--san-touch);
+    height: var(--san-touch);
+    flex: none;
+}
+
+.san-page .seg-opt,
+.san-page .checkbox,
+.san-dialog-body .checkbox {
+    min-height: var(--san-touch, calc(var(--control-size) * 1.25));
+}
+
+.san-page .checkbox,
+.san-dialog-body .checkbox {
+    position: relative;
+    align-items: center;
+}
+
+.san-page h2,
+.san-page h3,
+.san-page h4 {
+    margin-top: 0;
+}
+
+.san-page h2 { font-size: var(--font-size-h3); }
+.san-page h3 { font-size: var(--font-size-h4); }
+.san-page h4 { font-size: var(--font-size-h5); margin-bottom: var(--space-1); }
+
+.san-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.san-header h2 {
+    margin: 0;
+}
+
+.san-actions,
+.san-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.san-row-between {
+    justify-content: space-between;
+}
+
+.san-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.san-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+@media (min-width: 48rem) {
+    .san-list-cols {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.san-card {
+    min-width: 0;
+    background: var(--card-bg);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    box-shadow: var(--shadow-sm);
+}
+
+.san-card h4,
+.san-card p {
+    margin: 0;
+}
+
+.san-title {
+    font-family: var(--font-heading);
+    font-weight: var(--font-weight-strong);
+    font-size: var(--font-size-card-title);
+    line-height: var(--line-height-tight);
+}
+
+.san-meta {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-meta);
+}
+
+.san-detail {
+    font-size: var(--font-size-control);
+}
+
+.san-code {
+    font-variant-numeric: tabular-nums;
+    font-size: var(--font-size-sm);
+    word-break: break-all;
+}
+
+.san-pairing {
+    font-size: var(--font-size-h3);
+    letter-spacing: var(--tracking-caps-wide);
+    color: var(--color-accent);
+}
+
+/* statut */
+.san-status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.san-dot {
+    width: var(--space-2);
+    height: var(--space-2);
+    border-radius: var(--radius-round);
+    background: currentColor;
+    flex: none;
+}
+
+.san-status[data-status="working"] .san-dot {
+    animation: san-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes san-pulse {
+    50% { opacity: var(--disabled-opacity); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .san-status[data-status="working"] .san-dot { animation: none; }
+}
+
+.san-stale {
+    font-style: italic;
+}
+
+.san-card[data-stale="true"] {
+    opacity: var(--card-body-opacity);
+}
+
+.san-progress {
+    height: var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--color-divider);
+    overflow: hidden;
+}
+
+.san-progress-bar {
+    height: 100%;
+    background: var(--color-accent);
+    transition: width var(--dur-md) var(--ease-out);
+}
+
+/* connexion */
+.san-conn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+/* événements */
+.san-event {
+    border-left: calc(var(--hairline) * 4) solid var(--color-divider);
+}
+
+.san-event[data-priority="high"] {
+    border-left-color: var(--color-danger);
+    background: var(--color-danger-tint);
+}
+
+.san-event[data-muted="true"] {
+    opacity: var(--card-body-opacity);
+}
+
+.san-event audio {
+    width: 100%;
+    max-width: 100%;
+}
+
+/* états vides, messages */
+.san-empty {
+    padding: var(--space-6) var(--space-3);
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.san-error {
+    color: var(--color-danger);
+    font-size: var(--font-size-sm);
+    min-height: 0;
+}
+
+.san-warning {
+    color: var(--color-warning);
+    background: var(--color-warning-tint);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+}
+
+.san-hint {
+    font-size: var(--font-size-xs);
+    margin-top: var(--space-1);
+}
+
+/* dialogues */
+.san-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.san-dialog-body h4 {
+    margin: 0;
+}
+
+.san-impact-list {
+    margin: 0;
+    padding-left: var(--space-6);
+}
+
+.san-impact-gained h4 { color: var(--color-success); }
+.san-impact-lost h4 { color: var(--color-danger); }
+
+.san-copy {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: stretch;
+}
+
+textarea.san-code {
+    resize: none;
+    white-space: pre;
+    overflow-x: auto;
+}
+
+/* listes ordonnables */
+.san-sortable {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.san-sortable li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    justify-content: space-between;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--card-bg);
+    box-shadow: var(--shadow-sm);
+    min-width: 0;
+}
+
+.san-sortable .san-grow {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* enregistrement */
+.san-rec[data-recording="true"] {
+    animation: san-pulse 1s ease-in-out infinite;
+}
+
+pre.san-json {
+    margin: 0;
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--input-bg);
+    overflow-x: auto;
+    font-size: var(--font-size-xs);
+    max-width: 100%;
+}
+
+details > summary {
+    cursor: pointer;
+    min-height: calc(var(--control-size) * 1.25);
+    display: flex;
+    align-items: center;
+}
+
+/* Le contenu de la coquille ne doit jamais déborder horizontalement */
+.shell-content {
+    overflow-x: hidden;
+}
