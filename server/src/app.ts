@@ -74,19 +74,14 @@ export class ServerApp extends AbstractServerApp<AppTypes> {
     }
 
     /**
-     * Monte `/api/v1` en tête de la pile Express.
-     *
-     * Le constructeur de Dagda installe une « porte » (redirection vers /login
-     * pour toute requête sans session) avant qu'une sous-classe puisse monter
-     * quoi que ce soit : un router monté normalement ne verrait jamais un
-     * jeton Bearer. On déplace donc la couche en première position. Les
-     * routes `/admin` et `/web` rejouent elles-mêmes l'analyseur de session de
-     * Dagda (`_resolveAdmin`).
+     * Monte `/api/v1` sur le routeur public de Dagda (`_publicRouter`), placé
+     * avant les parseurs de corps globaux et la porte de session : un jeton
+     * Bearer n'y rencontre donc jamais la redirection vers /login. Les routes
+     * `/admin` et `/web` rejouent elles-mêmes l'analyseur de session de Dagda
+     * (`_resolveAdmin`).
      */
     protected _mountApi(api: ApiRouter): void {
-        this._app.use(API_PREFIX, api.router);
-        const stack = this._app.router.stack;
-        stack.unshift(stack.pop()!);
+        this._publicRouter.use(API_PREFIX, api.router);
     }
 
     /** Session administrateur Dagda de la requête, ou null */
