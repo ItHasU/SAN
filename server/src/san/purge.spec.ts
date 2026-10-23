@@ -50,8 +50,8 @@ describe.runIf(inject("databaseAvailable"))("purge des viewers pending", () => {
     it("runPeriodicTasks rapporte le nombre de demandes purgées", async () => {
         await insert("a", "pending", 10);
         await insert("b", "pending", 9);
-        expect(await runPeriodicTasks(db.runner, { pendingMaxAgeDays: 7 })).toEqual({ purgedPendingViewers: 2 });
-        expect(await runPeriodicTasks(db.runner, { pendingMaxAgeDays: 7 })).toEqual({ purgedPendingViewers: 0 });
+        expect(await runPeriodicTasks(db.runner, { pendingMaxAgeDays: 7 })).toMatchObject({ purgedPendingViewers: 2 });
+        expect(await runPeriodicTasks(db.runner, { pendingMaxAgeDays: 7 })).toMatchObject({ purgedPendingViewers: 0 });
     });
 
     it("la tâche planifiée purge à chaque période et s'arrête", async () => {

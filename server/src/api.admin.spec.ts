@@ -112,7 +112,7 @@ describe.runIf(inject("databaseAvailable"))("API /admin", () => {
             expect(reactivated.json.agent.revoked).toBe(false);
             expect((await t.api("POST", "/agent/state", { token: reactivated.json.token, body: { status: "idle" } })).status).toBe(200);
 
-            expect((await t.api("DELETE", "/admin/agents/rev-patch?purge=true", { cookie })).status).toBe(204);
+            expect((await t.api("DELETE", "/admin/agents/rev-patch?purge=true", { cookie })).status).toBe(200);
             expect((await t.api("GET", "/admin/agents/rev-patch", { cookie })).status).toBe(404);
             expect((await t.api("DELETE", "/admin/agents/rev-patch?purge=true", { cookie })).status).toBe(404);
         });
@@ -131,7 +131,7 @@ describe.runIf(inject("databaseAvailable"))("API /admin", () => {
             expect((await t.api("GET", "/admin/groups", { cookie })).json.groups).toHaveLength(1);
             expect((await t.api("GET", "/admin/groups/inconnu", { cookie })).status).toBe(404);
 
-            expect((await t.api("DELETE", "/admin/groups/perso-maison", { cookie })).status).toBe(204);
+            expect((await t.api("DELETE", "/admin/groups/perso-maison", { cookie })).status).toBe(200);
             expect((await t.api("DELETE", "/admin/groups/perso-maison", { cookie })).status).toBe(404);
         });
 

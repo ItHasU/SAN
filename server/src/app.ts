@@ -8,6 +8,7 @@ import { AppContexts } from "@san/shared/src/entities/contexts";
 import { AppEntityTypes } from "@san/shared/src/entities/types";
 import { Express, Request, Response } from "express";
 import { createApiRouter, ApiRouter } from "./san/api";
+import { EventBus } from "./san/bus";
 import { readSanConfig, SanConfig } from "./san/config";
 import { SAN_MIGRATIONS } from "./san/migrations";
 import { startPeriodicTasks } from "./san/purge";
@@ -19,6 +20,7 @@ export class ServerApp extends AbstractServerApp<AppTypes> {
 
     public readonly sanConfig: SanConfig;
     protected readonly _api: ApiRouter;
+    protected readonly _bus: EventBus;
     protected _stopPeriodicTasks: (() => void) | null = null;
 
     /**
@@ -32,8 +34,10 @@ export class ServerApp extends AbstractServerApp<AppTypes> {
         this.sanConfig = readSanConfig(process.env, sanOverrides);
         this._app.set("trust proxy", this.sanConfig.trustProxy);
 
+        this._bus = new EventBus({ connectionString: this._config.dbURL });
         this._api = createApiRouter({
             db: this._db,
+            bus: this._bus,
             config: this.sanConfig,
             resolveAdmin: (req, res) => this._resolveAdmin(req, res),
             audit: (userId, action, details) => this._recordAudit(userId, "action", `admin.${action}`, details)
@@ -58,6 +62,7 @@ export class ServerApp extends AbstractServerApp<AppTypes> {
 
     public override async listen(): Promise<void> {
         await super.listen();
+        await this._bus.start();
         this._stopPeriodicTasks = startPeriodicTasks(this._db, this.sanConfig);
     }
 
@@ -65,7 +70,14 @@ export class ServerApp extends AbstractServerApp<AppTypes> {
     public async close(): Promise<void> {
         this._stopPeriodicTasks?.();
         this._stopPeriodicTasks = null;
+        this._api.hub.closeAll();
+        await this._bus.stop();
         await this._db.close();
+    }
+
+    /** Bus interne (tests) */
+    public get bus(): EventBus {
+        return this._bus;
     }
 
     /** Limiteurs de débit en mémoire (tests) */

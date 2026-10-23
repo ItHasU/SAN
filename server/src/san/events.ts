@@ -32,9 +32,22 @@ export interface InsertedEvent {
     expires_at: Date;
 }
 
-/** Notifie les écouteurs ; livré au commit de la transaction en cours */
+/**
+ * Notifie les écouteurs ; livré au commit de la transaction en cours (rien
+ * n'est émis si elle est annulée). Le schéma courant est ajouté au message :
+ * `NOTIFY` est global à la base, et le bus ignore les messages d'un autre
+ * schéma (suites de tests en parallèle).
+ */
 export async function notify(sql: Sql, payload: Record<string, unknown>): Promise<void> {
-    await sql.run(`SELECT pg_notify($1, $2)`, NOTIFY_CHANNEL, JSON.stringify(payload));
+    await sql.run(
+        `SELECT pg_notify($1, (jsonb_build_object('schema', current_schema()) || $2::jsonb)::text)`,
+        NOTIFY_CHANNEL, JSON.stringify(payload)
+    );
+}
+
+/** Signal « la configuration d'un viewer (ou de tous) a peut-être changé » */
+export async function notifyConfigChanged(sql: Sql, viewerId: string | null = null): Promise<void> {
+    await notify(sql, { type: "config", viewer: viewerId });
 }
 
 /**

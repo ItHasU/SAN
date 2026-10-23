@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { SanConfig } from "./config";
-import { Db } from "./db";
+import { inTransaction, Sql } from "./db";
 import { badRequest, conflict, notFound, tooManyRequests, upgradeRequired } from "./errors";
+import { notifyConfigChanged } from "./events";
 import { newPairingCode, newViewerId } from "./ids";
 import { applyAutoToManual } from "./subscriptions";
 import { generateToken } from "./tokens";
@@ -75,10 +77,10 @@ export interface RegisterDeviceInput {
  * - un viewer `active` de même `hardware_id` n'est pas touché ;
  * - le nombre de demandes en attente est plafonné (`429 pending_limit`).
  */
-export async function registerDevice(db: Db, input: RegisterDeviceInput, config: Pick<SanConfig, "maxPending">): Promise<{ viewer_id: string, token: string, pairing_code: string }> {
+export async function registerDevice(db: Sql, input: RegisterDeviceInput, config: Pick<SanConfig, "maxPending">): Promise<{ viewer_id: string, token: string, pairing_code: string }> {
     const { token, hash } = generateToken("dev");
     const id = newViewerId();
-    return db.withTransaction(async (conn) => {
+    return inTransaction(db, async (conn) => {
         await conn.run(`SELECT pg_advisory_xact_lock($1)`, REGISTER_LOCK_KEY);
         await conn.run(`DELETE FROM viewers WHERE status = 'pending' AND hardware_id = $1`, input.hardwareId);
         const count = await conn.get<{ count: number }>(`SELECT count(*)::int AS count FROM viewers WHERE status = 'pending'`);
@@ -104,7 +106,7 @@ export async function registerDevice(db: Db, input: RegisterDeviceInput, config:
 }
 
 /** Crée un viewer `web`, actif d'emblée (SPEC §4.4) : l'utilisateur est authentifié */
-export async function createWebViewer(db: Db, input: { capabilities: Record<string, unknown>, label?: string }): Promise<{ viewer_id: string, token: string }> {
+export async function createWebViewer(db: Sql, input: { capabilities: Record<string, unknown>, label?: string }): Promise<{ viewer_id: string, token: string }> {
     const { token, hash } = generateToken("web");
     const id = newViewerId();
     await db.run(
@@ -115,14 +117,14 @@ export async function createWebViewer(db: Db, input: { capabilities: Record<stri
     return { viewer_id: id, token };
 }
 
-export async function listViewers(db: Db, status?: ViewerStatus): Promise<ViewerRecord[]> {
+export async function listViewers(db: Sql, status?: ViewerStatus): Promise<ViewerRecord[]> {
     return db.all<ViewerRecord>(
         `SELECT ${VIEWER_COLUMNS} FROM viewers WHERE ($1::text IS NULL OR status = $1) ORDER BY created_at DESC, id`,
         status ?? null
     );
 }
 
-export async function getViewer(db: Db, id: string): Promise<ViewerRecord> {
+export async function getViewer(db: Sql, id: string): Promise<ViewerRecord> {
     const row = await db.get<ViewerRecord>(`SELECT ${VIEWER_COLUMNS} FROM viewers WHERE id = $1`, id);
     if (row == null) {
         throw notFound(`Viewer « ${id} » introuvable.`);
@@ -134,8 +136,8 @@ export async function getViewer(db: Db, id: string): Promise<ViewerRecord> {
  * Modifie nom et/ou mode d'abonnement. Le passage `auto` → `manual` applique la
  * règle §8.1 dans la même transaction.
  */
-export async function updateViewer(db: Db, id: string, patch: { name?: string, subscriptionMode?: SubscriptionMode }): Promise<ViewerRecord> {
-    await db.withTransaction(async (conn) => {
+export async function updateViewer(db: Sql, id: string, patch: { name?: string, subscriptionMode?: SubscriptionMode }): Promise<ViewerRecord> {
+    await inTransaction(db, async (conn) => {
         const current = await conn.get<{ subscription_mode: SubscriptionMode }>(`SELECT subscription_mode FROM viewers WHERE id = $1 FOR UPDATE`, id);
         if (current == null) {
             throw notFound(`Viewer « ${id} » introuvable.`);
@@ -152,7 +154,7 @@ export async function updateViewer(db: Db, id: string, patch: { name?: string, s
 }
 
 /** Active un viewer pending en lui donnant un nom (SPEC §4.2) */
-export async function activateViewer(db: Db, id: string, name: string): Promise<ViewerRecord> {
+export async function activateViewer(db: Sql, id: string, name: string): Promise<ViewerRecord> {
     const row = await db.get<{ id: string }>(
         `UPDATE viewers SET status = 'active', name = $2, activated_at = now(), pairing_code = NULL
          WHERE id = $1 AND status = 'pending' RETURNING id`,
@@ -166,7 +168,7 @@ export async function activateViewer(db: Db, id: string, name: string): Promise<
 }
 
 /** Révoque un viewer (idempotent) : son jeton reçoit désormais 401 */
-export async function revokeViewer(db: Db, id: string): Promise<ViewerRecord> {
+export async function revokeViewer(db: Sql, id: string): Promise<ViewerRecord> {
     const row = await db.get<{ id: string }>(
         `UPDATE viewers SET status = 'revoked', revoked_at = COALESCE(revoked_at, now()), pairing_code = NULL WHERE id = $1 RETURNING id`,
         id
@@ -178,10 +180,37 @@ export async function revokeViewer(db: Db, id: string): Promise<ViewerRecord> {
 }
 
 /** Supprime les viewers `pending` plus anciens que `maxAgeDays` (SPEC §4.3), avec leur jeton */
-export async function purgePendingViewers(db: Db, maxAgeDays = 7, now: Date = new Date()): Promise<number> {
+export async function purgePendingViewers(db: Sql, maxAgeDays = 7, now: Date = new Date()): Promise<number> {
     const rows = await db.all<{ id: string }>(
         `DELETE FROM viewers WHERE status = 'pending' AND pending_since < $1::timestamptz - make_interval(days => $2) RETURNING id`,
         now.toISOString(), maxAgeDays
     );
     return rows.length;
+}
+
+/** 16 premiers caractères hex de `sha256(corps brut)` (DESIGN §4) */
+export function capabilitiesHash(raw: Buffer): string {
+    return createHash("sha256").update(raw).digest("hex").slice(0, 16);
+}
+
+/**
+ * Enregistre le document de capacités d'un viewer (`PUT /viewer/capabilities`) :
+ * le hash est calculé sur le corps exact reçu, le JSON parsé est stocké en même temps.
+ * @throws ApiError 400 (JSON invalide), 426 (version de protocole non supportée)
+ */
+export async function storeCapabilities(db: Sql, viewerId: string, raw: Buffer): Promise<{ caps_hash: string }> {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw.toString("utf8"));
+    } catch {
+        throw badRequest("Corps JSON invalide.", "invalid_json");
+    }
+    const capabilities = validateCapabilities(parsed);
+    const hash = capabilitiesHash(raw);
+    await inTransaction(db, async (conn) => {
+        await conn.run(`UPDATE viewers SET capabilities = $2::jsonb, capabilities_hash = $3 WHERE id = $1`, viewerId, JSON.stringify(capabilities), hash);
+        // can_send_voice effectif dépend de audio_in : la configuration peut changer
+        await notifyConfigChanged(conn, viewerId);
+    });
+    return { caps_hash: hash };
 }

@@ -51,3 +51,25 @@ export function optionalEnum<T extends string>(obj: JsonObject, key: string, all
     }
     return value as T;
 }
+
+/** Entier décimal non négatif d'un paramètre de requête ; `undefined` si absent ou vide */
+export function queryInt(value: unknown, name: string, max = Number.MAX_SAFE_INTEGER): number | undefined {
+    if (value === undefined || value === "") {
+        return undefined;
+    }
+    if (typeof value !== "string" || !/^\d{1,16}$/.test(value) || Number(value) > max) {
+        throw badRequest(`${name} doit être un entier entre 0 et ${max}.`);
+    }
+    return Number(value);
+}
+
+export function optionalBoolean(obj: JsonObject, key: string): boolean | undefined {
+    const value = obj[key];
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+    if (typeof value !== "boolean") {
+        throw badRequest(`${key} doit être un booléen.`);
+    }
+    return value;
+}

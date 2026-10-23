@@ -1,4 +1,4 @@
-import { Db } from "./db";
+import { inTransaction, Sql } from "./db";
 import { badRequest, conflict, notFound } from "./errors";
 
 export interface GroupRecord {
@@ -22,11 +22,11 @@ const GROUP_SELECT = `
 
 const toRecord = (row: GroupRow): GroupRecord => ({ slug: row.slug, name: row.name, description: row.description, members: row.members ?? [] });
 
-export async function listGroups(db: Db): Promise<GroupRecord[]> {
+export async function listGroups(db: Sql): Promise<GroupRecord[]> {
     return (await db.all<GroupRow>(`${GROUP_SELECT} ORDER BY g.slug`)).map(toRecord);
 }
 
-export async function getGroup(db: Db, slug: string): Promise<GroupRecord> {
+export async function getGroup(db: Sql, slug: string): Promise<GroupRecord> {
     const row = await db.get<GroupRow>(`${GROUP_SELECT} WHERE g.slug = $1`, slug);
     if (row == null) {
         throw notFound(`Groupe « ${slug} » introuvable.`);
@@ -34,7 +34,7 @@ export async function getGroup(db: Db, slug: string): Promise<GroupRecord> {
     return toRecord(row);
 }
 
-export async function createGroup(db: Db, input: { slug: string, name: string, description?: string }): Promise<GroupRecord> {
+export async function createGroup(db: Sql, input: { slug: string, name: string, description?: string }): Promise<GroupRecord> {
     const row = await db.get<{ slug: string }>(
         `INSERT INTO agent_groups (slug, name, description) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING RETURNING slug`,
         input.slug, input.name, input.description ?? null
@@ -45,7 +45,7 @@ export async function createGroup(db: Db, input: { slug: string, name: string, d
     return getGroup(db, input.slug);
 }
 
-export async function updateGroup(db: Db, slug: string, patch: { name?: string, description?: string | null }): Promise<GroupRecord> {
+export async function updateGroup(db: Sql, slug: string, patch: { name?: string, description?: string | null }): Promise<GroupRecord> {
     const row = await db.get<{ slug: string }>(
         `UPDATE agent_groups SET name = COALESCE($2, name),
             description = CASE WHEN $3::boolean THEN $4 ELSE description END
@@ -58,7 +58,7 @@ export async function updateGroup(db: Db, slug: string, patch: { name?: string, 
     return getGroup(db, slug);
 }
 
-export async function deleteGroup(db: Db, slug: string): Promise<void> {
+export async function deleteGroup(db: Sql, slug: string): Promise<void> {
     const row = await db.get<{ slug: string }>(`DELETE FROM agent_groups WHERE slug = $1 RETURNING slug`, slug);
     if (row == null) {
         throw notFound(`Groupe « ${slug} » introuvable.`);
@@ -66,9 +66,9 @@ export async function deleteGroup(db: Db, slug: string): Promise<void> {
 }
 
 /** Remplace l'ensemble des membres du groupe (transaction ; tous les agents doivent exister) */
-export async function setGroupMembers(db: Db, slug: string, members: string[]): Promise<GroupRecord> {
+export async function setGroupMembers(db: Sql, slug: string, members: string[]): Promise<GroupRecord> {
     const unique = [...new Set(members)];
-    await db.withTransaction(async (conn) => {
+    await inTransaction(db, async (conn) => {
         const group = await conn.get(`SELECT slug FROM agent_groups WHERE slug = $1 FOR UPDATE`, slug);
         if (group == null) {
             throw notFound(`Groupe « ${slug} » introuvable.`);

@@ -19,6 +19,8 @@ export interface SanConfig {
     pendingMaxAgeDays: number;
     /** Période des tâches de purge, en millisecondes (DESIGN §3) */
     purgeIntervalMs: number;
+    /** Période des commentaires de battement des flux SSE, en millisecondes (SPEC : 25 s) */
+    sseHeartbeatMs: number;
     /** Répertoire des fichiers audio (`DATA_DIR`) */
     dataDir: string;
 }
@@ -32,6 +34,7 @@ export const DEFAULT_SAN_CONFIG: SanConfig = {
     jsonLimit: "64kb",
     pendingMaxAgeDays: 7,
     purgeIntervalMs: 10 * 60 * 1000,
+    sseHeartbeatMs: 25_000,
     dataDir: "./data"
 };
 

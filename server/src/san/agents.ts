@@ -1,4 +1,4 @@
-import { Db } from "./db";
+import { inTransaction, Sql } from "./db";
 import { conflict, notFound } from "./errors";
 import { generateToken } from "./tokens";
 import { notify } from "./events";
@@ -71,11 +71,11 @@ function toRecord(row: AgentRow): AgentRecord {
     };
 }
 
-export async function listAgents(db: Db): Promise<AgentRecord[]> {
+export async function listAgents(db: Sql): Promise<AgentRecord[]> {
     return (await db.all<AgentRow>(`${AGENT_SELECT} ORDER BY a.slug`)).map(toRecord);
 }
 
-export async function getAgent(db: Db, slug: string): Promise<AgentRecord> {
+export async function getAgent(db: Sql, slug: string): Promise<AgentRecord> {
     const row = await db.get<AgentRow>(`${AGENT_SELECT} WHERE a.slug = $1`, slug);
     if (row == null) {
         throw notFound(`Agent « ${slug} » introuvable.`);
@@ -84,7 +84,7 @@ export async function getAgent(db: Db, slug: string): Promise<AgentRecord> {
 }
 
 /** Crée un agent ; le jeton en clair n'est renvoyé qu'ici */
-export async function createAgent(db: Db, input: { slug: string, name: string, description?: string }): Promise<{ agent: AgentRecord, token: string }> {
+export async function createAgent(db: Sql, input: { slug: string, name: string, description?: string }): Promise<{ agent: AgentRecord, token: string }> {
     const { token, hash } = generateToken("agt");
     const row = await db.get<{ slug: string }>(
         `INSERT INTO agents (slug, name, description, token_hash) VALUES ($1, $2, $3, $4)
@@ -97,7 +97,7 @@ export async function createAgent(db: Db, input: { slug: string, name: string, d
     return { agent: await getAgent(db, input.slug), token };
 }
 
-export async function updateAgent(db: Db, slug: string, patch: { name?: string, description?: string | null, revoked?: true }): Promise<AgentRecord> {
+export async function updateAgent(db: Sql, slug: string, patch: { name?: string, description?: string | null, revoked?: true }): Promise<AgentRecord> {
     const row = await db.get<{ slug: string }>(
         `UPDATE agents SET
             name = COALESCE($2, name),
@@ -116,7 +116,7 @@ export async function updateAgent(db: Db, slug: string, patch: { name?: string, 
  * Régénère le jeton : l'ancien cesse de fonctionner. Un agent révoqué est
  * réactivé (il reçoit un jeton neuf).
  */
-export async function regenerateAgentToken(db: Db, slug: string): Promise<{ agent: AgentRecord, token: string }> {
+export async function regenerateAgentToken(db: Sql, slug: string): Promise<{ agent: AgentRecord, token: string }> {
     const { token, hash } = generateToken("agt");
     const row = await db.get<{ slug: string }>(`UPDATE agents SET token_hash = $2, revoked_at = NULL WHERE slug = $1 RETURNING slug`, slug, hash);
     if (row == null) {
@@ -126,7 +126,7 @@ export async function regenerateAgentToken(db: Db, slug: string): Promise<{ agen
 }
 
 /** Suppression définitive (état, événements et appartenances partent en cascade) */
-export async function deleteAgent(db: Db, slug: string): Promise<void> {
+export async function deleteAgent(db: Sql, slug: string): Promise<void> {
     const row = await db.get<{ slug: string }>(`DELETE FROM agents WHERE slug = $1 RETURNING slug`, slug);
     if (row == null) {
         throw notFound(`Agent « ${slug} » introuvable.`);
@@ -141,8 +141,8 @@ export interface StateInput {
 }
 
 /** Remplace l'état courant de l'agent (seule la dernière valeur est conservée) et notifie */
-export async function setAgentState(db: Db, slug: string, input: StateInput): Promise<{ updated_at: Date }> {
-    return db.withTransaction(async (conn) => {
+export async function setAgentState(db: Sql, slug: string, input: StateInput): Promise<{ updated_at: Date }> {
+    return inTransaction(db, async (conn) => {
         const row = await conn.get<{ updated_at: Date }>(
             `INSERT INTO agent_state (agent_slug, status, detail, progress, ttl_s, updated_at)
              VALUES ($1, $2, $3, $4, $5, clock_timestamp())

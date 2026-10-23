@@ -5,10 +5,13 @@ import { SanConfig } from "./config";
 import { Db } from "./db";
 import { notFound, tooManyRequests, unauthorized, forbidden } from "./errors";
 import { apiErrorHandler, clientIp, principalOf } from "./http";
+import { EventBus } from "./bus";
 import { RateLimiter } from "./rate-limiter";
+import { SseHub } from "./sse";
 import { adminRoutes, AuditFn, webRegisterRoutes } from "./routes/admin";
 import { agentRoutes } from "./routes/agent";
 import { deviceRegisterHandler, deviceRoutes } from "./routes/device";
+import { viewerRoutes } from "./routes/viewer";
 import { hashToken, parseBearer } from "./tokens";
 
 export interface ApiDeps {
@@ -18,6 +21,8 @@ export interface ApiDeps {
     resolveAdmin: (req: Request, res: Response) => Promise<UserInfo | null>;
     /** Journal d'audit (Dagda) : (userId, action, détails) */
     audit: (userId: number, action: string, details: unknown) => Promise<void>;
+    /** Bus LISTEN/NOTIFY qui réveille SSE et long-polls */
+    bus: EventBus;
     /** Horloge injectable (limiteurs) */
     now?: () => number;
 }
@@ -25,6 +30,8 @@ export interface ApiDeps {
 export interface ApiRouter {
     router: Router;
     limiters: { register: RateLimiter, requests: RateLimiter, authFailures: RateLimiter };
+    /** Connexions SSE ouvertes */
+    hub: SseHub;
 }
 
 /** Chemin accessible à un viewer encore `pending` (SPEC §4.2) */
@@ -42,7 +49,15 @@ export function createApiRouter(deps: ApiDeps): ApiRouter {
         requests: new RateLimiter({ limit: config.ratePerMinute, windowMs: 60_000, now }),
         authFailures: new RateLimiter({ limit: config.authFailuresPerMinute, windowMs: 60_000, now })
     };
-    const jsonBody = express.json({ limit: config.jsonLimit, type: "application/json" });
+    // `rawBody` : le hash des capacités porte sur le corps exact reçu (DESIGN §4)
+    const jsonBody = express.json({
+        limit: config.jsonLimit,
+        type: "application/json",
+        verify: (req, _res, buf) => {
+            (req as unknown as { rawBody?: Buffer }).rawBody = buf;
+        }
+    });
+    const hub = new SseHub(db, deps.bus, config.sseHeartbeatMs);
 
     const router = Router();
     router.use((_req, res, next) => {
@@ -96,12 +111,13 @@ export function createApiRouter(deps: ApiDeps): ApiRouter {
     const authenticated = Router();
     authenticated.use(bearer, jsonBody);
     authenticated.use(deviceRoutes(db));
-    authenticated.use(agentRoutes(db));
+    authenticated.use(agentRoutes(db, deps.bus));
+    authenticated.use(viewerRoutes(db, hub));
     router.use(authenticated);
 
     router.use((_req, _res, next) => next(notFound("Route inconnue.")));
     router.use(apiErrorHandler);
-    return { router, limiters };
+    return { router, limiters, hub };
 }
 
 export { principalOf };

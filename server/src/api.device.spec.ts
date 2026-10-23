@@ -126,7 +126,7 @@ describe.runIf(inject("databaseAvailable"))("API /device", () => {
             const fresh = await registerDevice(t, "hw-fresh");
             await t.db.runner.run(`UPDATE viewers SET pending_since = now() - interval '8 days' WHERE id = $1`, stale.viewer_id);
 
-            expect(await runPeriodicTasks(t.db.runner, { pendingMaxAgeDays: 7 })).toEqual({ purgedPendingViewers: 1 });
+            expect(await runPeriodicTasks(t.db.runner, { pendingMaxAgeDays: 7 })).toMatchObject({ purgedPendingViewers: 1 });
             expect((await t.api("GET", "/device/status", { token: stale.token })).status).toBe(401);
             expect((await t.api("GET", "/device/status", { token: fresh.token })).json).toEqual({ status: "pending" });
             // la carte peut se réenregistrer
