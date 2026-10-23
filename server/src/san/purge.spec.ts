@@ -60,7 +60,8 @@ describe.runIf(inject("databaseAvailable"))("purge des viewers pending", () => {
         const stop = startPeriodicTasks(db.runner, { pendingMaxAgeDays: 7, purgeIntervalMs: 50 }, (message) => logs.push(message));
         try {
             await vi.waitFor(async () => expect(await ids()).toEqual([]), { timeout: 3000, interval: 25 });
-            expect(logs.join("\n")).toContain("1 demande");
+            // le journal est écrit après la fin des autres purges de la même passe
+            await vi.waitFor(() => expect(logs.join("\n")).toContain("1 demande"), { timeout: 3000, interval: 25 });
         } finally {
             stop();
         }

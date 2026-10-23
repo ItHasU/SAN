@@ -2,8 +2,11 @@ import { createTestDatabase, TEST_DB_URL, TestDatabase } from "@dagda/server/src
 import { APP_CONTEXT_ADAPTER } from "@san/shared/src/entities/contexts";
 import { APP_MODEL } from "@san/shared/src/entities/model";
 import { APP_PERMISSIONS } from "@san/shared/src/permissions";
+import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, Server } from "node:http";
 import { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ServerApp } from "../app";
 import { SanConfig } from "../san/config";
 
@@ -14,12 +17,20 @@ export interface ApiResponse {
     json: any;
 }
 
+export interface BinaryResponse {
+    status: number;
+    headers: Headers;
+    body: Buffer;
+}
+
 export interface RequestInit2 {
     token?: string;
     cookie?: string;
     body?: unknown;
     /** Corps brut (prioritaire sur `body`) */
     raw?: string;
+    /** Corps binaire (prioritaire sur `raw` et `body`) */
+    binary?: Uint8Array;
     headers?: Record<string, string>;
 }
 
@@ -29,6 +40,10 @@ export interface TestApp {
     baseUrl: string;
     /** Appelle `/api/v1<path>` */
     api(method: string, path: string, init?: RequestInit2): Promise<ApiResponse>;
+    /** Comme `api`, mais renvoie le corps binaire tel quel */
+    apiBinary(method: string, path: string, init?: RequestInit2): Promise<BinaryResponse>;
+    /** Répertoire `DATA_DIR` jetable de l'application */
+    dataDir: string;
     /** Ouvre une session Dagda (admin/admin créé par le framework) et renvoie le cookie */
     loginAdmin(): Promise<string>;
     close(): Promise<void>;
@@ -48,14 +63,21 @@ export async function createTestApp(label: string, san: Partial<SanConfig> = {})
     process.env["APP_DATABASE_URL"] = url.toString();
     process.env["APP_SECRET"] = "glUGBe5xyLTagSXb4SFa3oQBxeVoqVymDlqy9lDSEO0=";
 
-    const app = new ServerApp({ staticFolder: "." }, APP_MODEL, APP_CONTEXT_ADAPTER, undefined, undefined, APP_PERMISSIONS, san);
+    const dataDir = await mkdtemp(join(tmpdir(), "san-test-data-"));
+    const app = new ServerApp({ staticFolder: "." }, APP_MODEL, APP_CONTEXT_ADAPTER, undefined, undefined, APP_PERMISSIONS,
+        { dataDir, ttsEngine: "fake", ttsUrl: null, ...san });
     await app.migrate();
 
     const server: Server = createServer(app.handler);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
-    const api = async (method: string, path: string, init: RequestInit2 = {}): Promise<ApiResponse> => {
+    const apiBinary = async (method: string, path: string, init: RequestInit2 = {}): Promise<BinaryResponse> => {
+        const response = await send(method, path, init);
+        return { status: response.status, headers: response.headers, body: Buffer.from(await response.arrayBuffer()) };
+    };
+
+    const send = async (method: string, path: string, init: RequestInit2): Promise<Response> => {
         const headers: Record<string, string> = { ...init.headers };
         if (init.token != null) {
             headers["authorization"] = `Bearer ${init.token}`;
@@ -63,14 +85,18 @@ export async function createTestApp(label: string, san: Partial<SanConfig> = {})
         if (init.cookie != null) {
             headers["cookie"] = init.cookie;
         }
-        let body: string | undefined = init.raw;
+        let body: string | Uint8Array | undefined = init.binary ?? init.raw;
         if (body === undefined && init.body !== undefined) {
             body = JSON.stringify(init.body);
         }
         if (body !== undefined) {
             headers["content-type"] ??= "application/json";
         }
-        const response = await fetch(`${baseUrl}/api/v1${path}`, { method, headers, body, redirect: "manual" });
+        return fetch(`${baseUrl}/api/v1${path}`, { method, headers, body: body as RequestInit["body"], redirect: "manual" });
+    };
+
+    const api = async (method: string, path: string, init: RequestInit2 = {}): Promise<ApiResponse> => {
+        const response = await send(method, path, init);
         const text = await response.text();
         let json: unknown = null;
         if (text !== "") {
@@ -84,7 +110,7 @@ export async function createTestApp(label: string, san: Partial<SanConfig> = {})
     };
 
     return {
-        app, db, baseUrl, api,
+        app, db, baseUrl, api, apiBinary, dataDir,
         loginAdmin: async () => {
             const response = await fetch(`${baseUrl}/login`, {
                 method: "POST",
@@ -102,6 +128,7 @@ export async function createTestApp(label: string, san: Partial<SanConfig> = {})
             await new Promise<void>((resolve) => server.close(() => resolve()));
             await app.close();
             await db.dispose();
+            await rm(dataDir, { recursive: true, force: true });
         }
     };
 }

@@ -8,6 +8,10 @@ import { AppContexts } from "@san/shared/src/entities/contexts";
 import { AppEntityTypes } from "@san/shared/src/entities/types";
 import { Express, Request, Response } from "express";
 import { createApiRouter, ApiRouter } from "./san/api";
+import { MediaTools } from "./san/audio/ffmpeg";
+import { AudioService } from "./san/audio/service";
+import { FakeTts, PiperHttpTts, TtsEngine } from "./san/audio/tts";
+import { TtsQueue } from "./san/audio/tts-queue";
 import { EventBus } from "./san/bus";
 import { readSanConfig, SanConfig } from "./san/config";
 import { SAN_MIGRATIONS } from "./san/migrations";
@@ -21,6 +25,8 @@ export class ServerApp extends AbstractServerApp<AppTypes> {
     public readonly sanConfig: SanConfig;
     protected readonly _api: ApiRouter;
     protected readonly _bus: EventBus;
+    protected readonly _audio: AudioService;
+    protected readonly _tts: TtsQueue;
     protected _stopPeriodicTasks: (() => void) | null = null;
 
     /**
@@ -35,9 +41,16 @@ export class ServerApp extends AbstractServerApp<AppTypes> {
         this._app.set("trust proxy", this.sanConfig.trustProxy);
 
         this._bus = new EventBus({ connectionString: this._config.dbURL });
+        const cfg = this.sanConfig;
+        const media = new MediaTools({ ffmpegPath: cfg.ffmpegPath, ffprobePath: cfg.ffprobePath, timeoutMs: cfg.mediaTimeoutMs, concurrency: cfg.mediaConcurrency });
+        this._audio = new AudioService(this._db, media, cfg.dataDir);
+        const engine: TtsEngine = cfg.ttsEngine === "piper" ? new PiperHttpTts(cfg.ttsUrl!, cfg.ttsTimeoutMs) : new FakeTts(media);
+        this._tts = new TtsQueue(this._db, this._audio, engine, cfg.maxClipDurationS);
         this._api = createApiRouter({
             db: this._db,
             bus: this._bus,
+            audio: this._audio,
+            tts: this._tts,
             config: this.sanConfig,
             resolveAdmin: (req, res) => this._resolveAdmin(req, res),
             audit: (userId, action, details) => this._recordAudit(userId, "action", `admin.${action}`, details)
@@ -63,6 +76,8 @@ export class ServerApp extends AbstractServerApp<AppTypes> {
     public override async listen(): Promise<void> {
         await super.listen();
         await this._bus.start();
+        // Reprise des clips TTS restés `pending`
+        this._tts.resume();
         this._stopPeriodicTasks = startPeriodicTasks(this._db, this.sanConfig);
     }
 
@@ -71,8 +86,18 @@ export class ServerApp extends AbstractServerApp<AppTypes> {
         this._stopPeriodicTasks?.();
         this._stopPeriodicTasks = null;
         this._api.hub.closeAll();
+        await this._tts.stop();
         await this._bus.stop();
         await this._db.close();
+    }
+
+    /** Stockage audio et file TTS (tests) */
+    public get audio(): AudioService {
+        return this._audio;
+    }
+
+    public get tts(): TtsQueue {
+        return this._tts;
     }
 
     /** Bus interne (tests) */

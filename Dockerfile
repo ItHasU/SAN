@@ -49,9 +49,8 @@ RUN mkdir /data && chown node:node /data
 VOLUME ["/data"]
 
 # Configuration d'amorçage : APP_PORT, APP_BASE_URL, APP_DATABASE_URL, APP_SECRET,
-# SAN_* (voir .env.prod.example). Il n'y a pas encore de route /health publique :
-# /api/v1/device/status sans jeton répond 401 JSON, ce qui prouve que Node, le
-# routeur et Express tournent ; toute réponse < 500 est considérée saine.
+# SAN_* (voir .env.prod.example). La sonde interroge GET /api/v1/health, publique,
+# qui exécute un `SELECT 1` : 200 {"ok":true}, 503 si la base est injoignable.
 ENV NODE_ENV=production \
     APP_PORT=3000 \
     DATA_DIR=/data
@@ -59,6 +58,6 @@ USER 1000:1000
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.APP_PORT||3000)+'/api/v1/device/status').then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))"]
+  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.APP_PORT||3000)+'/api/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
 
 CMD ["node", "dist/main.js"]

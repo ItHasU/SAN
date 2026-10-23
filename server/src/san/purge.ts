@@ -72,14 +72,16 @@ export async function purgeStaleCursors(sql: Sql): Promise<number> {
 export const clipDirectory = (dataDir: string, clipId: string): string => join(dataDir, "clips", clipId);
 
 /**
- * Supprime les clips qu'aucun événement ne référence (lignes, conversions en
- * cascade) puis leurs fichiers sous `DATA_DIR`.
+ * Supprime les clips qu'aucun événement ne référence (dont les clips `failed`,
+ * qui n'en ont jamais) (lignes, conversions en cascade) puis leurs fichiers sous `DATA_DIR`. Un clip
+ * `pending` dont le job TTS existe encore n'est jamais supprimé.
  * @returns le nombre de clips supprimés
  */
 export async function purgeOrphanClips(sql: Sql, dataDir: string, now: Date = new Date()): Promise<number> {
     const rows = await sql.all<{ id: string }>(
         `DELETE FROM voice_clips c
          WHERE c.created_at < $1::timestamptz - make_interval(secs => $2::int)
+           AND NOT EXISTS (SELECT 1 FROM tts_jobs j WHERE j.clip_id = c.id)
            AND NOT EXISTS (SELECT 1 FROM events e WHERE e.clip_id = c.id)
          RETURNING c.id`,
         now.toISOString(), ORPHAN_CLIP_GRACE_S

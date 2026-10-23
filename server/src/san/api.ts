@@ -1,5 +1,7 @@
 import { UserInfo } from "@dagda/shared/src/auth/types";
 import express, { NextFunction, Request, RequestHandler, Response, Router } from "express";
+import { AudioService } from "./audio/service";
+import { TtsQueue } from "./audio/tts-queue";
 import { authenticateToken } from "./auth";
 import { SanConfig } from "./config";
 import { Db } from "./db";
@@ -12,6 +14,7 @@ import { adminRoutes, AuditFn, webRegisterRoutes } from "./routes/admin";
 import { agentRoutes } from "./routes/agent";
 import { deviceRegisterHandler, deviceRoutes } from "./routes/device";
 import { viewerRoutes } from "./routes/viewer";
+import { voiceRoutes } from "./routes/voice";
 import { hashToken, parseBearer } from "./tokens";
 
 export interface ApiDeps {
@@ -23,6 +26,10 @@ export interface ApiDeps {
     audit: (userId: number, action: string, details: unknown) => Promise<void>;
     /** Bus LISTEN/NOTIFY qui réveille SSE et long-polls */
     bus: EventBus;
+    /** Stockage et conversion des clips audio */
+    audio: AudioService;
+    /** File de synthèse vocale */
+    tts: TtsQueue;
     /** Horloge injectable (limiteurs) */
     now?: () => number;
 }
@@ -66,6 +73,15 @@ export function createApiRouter(deps: ApiDeps): ApiRouter {
     });
 
     // -- Public ------------------------------------------------------------
+    // Sonde de santé (HEALTHCHECK Docker) : sans authentification ni limite de débit
+    router.get("/health", async (_req, res) => {
+        try {
+            await db.get(`SELECT 1`);
+            res.json({ ok: true });
+        } catch {
+            res.status(503).json({ ok: false });
+        }
+    });
     router.post("/device/register", jsonBody, deviceRegisterHandler(db, config, limiters.register));
 
     // -- Session administrateur Dagda --------------------------------------
@@ -113,6 +129,7 @@ export function createApiRouter(deps: ApiDeps): ApiRouter {
     authenticated.use(deviceRoutes(db));
     authenticated.use(agentRoutes(db, deps.bus));
     authenticated.use(viewerRoutes(db, hub));
+    authenticated.use(voiceRoutes(db, config, deps.audio, deps.tts));
     router.use(authenticated);
 
     router.use((_req, _res, next) => next(notFound("Route inconnue.")));
