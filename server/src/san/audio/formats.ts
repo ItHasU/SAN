@@ -50,11 +50,11 @@ export const renditionFileName = (format: RenditionFormat, rate: number): string
 //#region Entrées --------------------------------------------------------------
 
 /** Nature du fichier reçu ; fixe le démultiplexeur ffmpeg (jamais détecté par sondage) */
-export type InputKind = "wav" | "mp3" | "ogg" | "webm";
+export type InputKind = "wav" | "mp3" | "ogg" | "webm" | "mp4" | "aac";
 
-export const INPUT_EXTENSIONS: Record<InputKind, string> = { wav: "wav", mp3: "mp3", ogg: "ogg", webm: "webm" };
+export const INPUT_EXTENSIONS: Record<InputKind, string> = { wav: "wav", mp3: "mp3", ogg: "ogg", webm: "webm", mp4: "mp4", aac: "aac" };
 /** Démultiplexeur forcé (`-f`) : évite qu'un contenu forgé soit pris pour une playlist ou un script */
-export const INPUT_DEMUXERS: Record<InputKind, string> = { wav: "wav", mp3: "mp3", ogg: "ogg", webm: "matroska" };
+export const INPUT_DEMUXERS: Record<InputKind, string> = { wav: "wav", mp3: "mp3", ogg: "ogg", webm: "matroska", mp4: "mov", aac: "aac" };
 
 const WAV_TYPES = ["audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"];
 
@@ -65,11 +65,15 @@ export const AGENT_INPUT_TYPES: Record<string, InputKind> = {
     "audio/ogg": "ogg"
 };
 
-/** Types acceptés d'un viewer (DESIGN §5) : WAV de la carte, WebM/Ogg de MediaRecorder */
+/** Types acceptés d'un viewer (DESIGN §5) : WAV de la carte, WebM/Ogg/MP4 (Safari iOS) de MediaRecorder */
 export const VIEWER_INPUT_TYPES: Record<string, InputKind> = {
     ...Object.fromEntries(WAV_TYPES.map((type) => [type, "wav" as const])),
     "audio/webm": "webm",
-    "audio/ogg": "ogg"
+    "audio/ogg": "ogg",
+    "audio/mp4": "mp4",
+    "audio/x-m4a": "mp4",
+    "audio/m4a": "mp4",
+    "audio/aac": "aac"
 };
 
 /** Type MIME sans paramètres (`audio/webm;codecs=opus` → `audio/webm`) */

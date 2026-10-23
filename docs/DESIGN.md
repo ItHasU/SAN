@@ -93,7 +93,7 @@ structurante doit y être ajoutée.
   fréquence : la plus haute déclarée ≤ 16000. Viewer web : `audio_out.formats =
   ["mp3","ogg","pcm_s16le"]` → servi en `mp3` (le serveur sait aussi servir `mp3`/`ogg`), voir §11.
 - Envoi viewer → agent : corps `audio/wav` (PCM ou IMA ADPCM) ou, pour le web,
-  `audio/webm`/`audio/ogg` (MediaRecorder). Le serveur stocke l'original et transcode
+  `audio/webm`/`audio/ogg` (Chrome, Firefox) ou `audio/mp4` (AAC, Safari iOS ; aussi `audio/x-m4a`, `audio/m4a`, `audio/aac` en ADTS) produits par MediaRecorder. Le serveur stocke l'original et transcode
   en pivot. Durée max vérifiée après décodage (`ffprobe`).
 - Formats agent : `wav` (16 kHz), `mp3`, `ogg` (Opus).
 - Cache : `voice_renditions`, fichiers sous `DATA_DIR/clips/<clip>/<format>-<rate>.<ext>`.
@@ -177,7 +177,7 @@ et `postgresql://dagda:dagda@localhost:5432/san` (serveur de dev). ffmpeg dans `
   dans `routes/voice.ts`.
 - **ffmpeg / ffprobe** : `child_process.spawn` sans shell, arguments en tableau, délai de 30 s
   (`mediaTimeoutMs`), 2 processus simultanés au plus, `-protocol_whitelist file`. Le
-  **démultiplexeur d'entrée est imposé** par le `Content-Type` (`-f wav|mp3|ogg|matroska`) :
+  **démultiplexeur d'entrée est imposé** par le `Content-Type` (`-f wav|mp3|ogg|matroska|mov|aac`) :
   aucun sondage de format, donc pas de playlist ou de script pris pour de l'audio. Un fichier
   qui ne correspond pas à son type est rejeté (`400 invalid_audio`). Le décodage est borné à
   `max + 1` s (`-t`) puis la durée est mesurée par `ffprobe` sur le **pivot**.
@@ -185,8 +185,8 @@ et `postgresql://dagda:dagda@localhost:5432/san` (serveur de dev). ffmpeg dans `
   `415 unsupported_media_type` (avant lecture du corps) ; audio illisible ou vide `400
   invalid_audio` ; durée > 30 s (agent) ou > `audio_in.max_duration_s` (viewer, plafonné à 30 s,
   30 s si non déclaré) `413 audio_too_long`. Types acceptés : agent `audio/wav|mpeg|ogg` ;
-  viewer `audio/wav|webm|ogg` (paramètres tolérés : `audio/webm;codecs=opus`). `audio/mp4`
-  (Safari) n'est pas accepté.
+  viewer `audio/wav|webm|ogg|mp4|x-m4a|m4a|aac` (paramètres tolérés : `audio/webm;codecs=opus`,
+  `audio/mp4;codecs=mp4a.40.2`). `audio/mp4` (Safari iOS, MP4 fragmenté compris) est lu par le démultiplexeur `mov`.
 - **Disposition** : `DATA_DIR/clips/<clip>/original.<ext>`, `wav-16000.wav` (pivot, rendition
   `wav`/16000) et `<format>-<rate>.<ext>`. Les chemins en base sont **relatifs** à `DATA_DIR`.
   Le pivot n'est jamais reconstruit (produit à la réception) ; les autres renditions sont

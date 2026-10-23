@@ -82,7 +82,7 @@ Préfixe `/api/v1`. Erreurs JSON `{ "error": "code", "message": "…" }`.
 | `POST /agent/voice?priority=&ttl_s=&text=` | jeton `agt_` : corps binaire `audio/wav\|mpeg\|ogg` ≤ 2 Mo, ≤ 30 s : `201 {clip_id, event_id}` |
 | `GET /agent/voice/:clip?format=wav\|mp3\|ogg` | jeton `agt_` : message vocal reçu d'un viewer (WAV 16 kHz par défaut) |
 | `GET /viewer/voice/:clip` | jeton `dev_` / `web_` : clip dans le format choisi selon les capacités (`Range` géré) |
-| `POST /viewer/voice?to=<agent>` | jeton `dev_` / `web_` avec `can_send_voice` et `audio_in` : corps `audio/wav` (PCM ou IMA ADPCM), `audio/webm`, `audio/ogg` : `201 {clip_id, event_id}` |
+| `POST /viewer/voice?to=<agent>` | jeton `dev_` / `web_` avec `can_send_voice` et `audio_in` : corps `audio/wav` (PCM ou IMA ADPCM), `audio/webm`, `audio/ogg`, `audio/mp4` (Safari) : `201 {clip_id, event_id}` |
 | `/admin/agents`, `/admin/groups`, `/admin/viewers` (+ `activate`, `revoke`, `token`, `members`) | session Dagda |
 | `/admin/viewers/:id/rules`, `/admin/rules/:id` (+ `coverage`), `/admin/viewers/:id/access/:agent`, `/admin/viewers/:id/subscriptions` | session Dagda |
 

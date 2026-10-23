@@ -337,6 +337,29 @@ describe.runIf(inject("databaseAvailable"))("API audio", () => {
     });
 
     describe("viewer → agent", () => {
+        it("Safari iOS : audio/mp4 (AAC, MP4 fragmenté ou non), audio/x-m4a et audio/aac sont acceptés", async () => {
+            const web = await webViewer({ voice: true });
+            // Safari iOS : MediaRecorder produit de l'AAC dans du MP4 fragmenté
+            const fragmented = ["-movflags", "frag_keyframe+empty_moov+default_base_moof"];
+            const safari: Array<[string, Buffer]> = [
+                ["audio/mp4", await sine({ seconds: 1.5, rate: 44100, codec: "aac", format: "mp4", extra: fragmented })],
+                ["audio/mp4;codecs=mp4a.40.2", await sine({ seconds: 1.5, rate: 48000, codec: "aac", format: "mp4" })],
+                ["audio/x-m4a", await sine({ seconds: 1.5, rate: 44100, codec: "aac", format: "ipod" })],
+                ["audio/aac", await sine({ seconds: 1.5, rate: 44100, codec: "aac", format: "adts" })]
+            ];
+            for (const [type, data] of safari) {
+                const response = await postWav("/viewer/voice?to=robot", web.token, data, type);
+                expect(response.status, type).toBe(201);
+                const wav = await t.apiBinary("GET", `/agent/voice/${response.json.clip_id}`, { token: robot.token });
+                expect(await probeBuffer(wav.body), type).toMatchObject({ codec: "pcm_s16le", rate: 16000, channels: 1 });
+                expect((await probeBuffer(wav.body)).duration, type).toBeGreaterThan(1.3);
+            }
+            expect(await t.db.runner.get<any>(`SELECT count(*)::int AS n FROM voice_clips`)).toEqual({ n: 4 });
+            const wrong = await postWav("/viewer/voice?to=robot", web.token, await sine({ seconds: 1 }), "audio/mp4");
+            expect(wrong.status).toBe(400);
+            expect(wrong.json.error).toBe("invalid_audio");
+        });
+
         it("web (audio/webm et audio/ogg) et carte (WAV PCM, IMA ADPCM) → inbox → téléchargement wav/mp3/ogg", async () => {
             const web = await webViewer({ voice: true });
             const sources: Array<[string, Buffer, string]> = [
