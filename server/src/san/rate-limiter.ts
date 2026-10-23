@@ -50,6 +50,13 @@ export class RateLimiter {
         return result;
     }
 
+    /** Vrai si `key` a atteint la limite, sans enregistrer de requête */
+    public isBlocked(key: string): boolean {
+        const cutoff = this._now() - this._options.windowMs;
+        const recent = (this._hits.get(key) ?? []).filter((time) => time > cutoff);
+        return recent.length >= this._options.limit;
+    }
+
     /** Oublie `key` (ex. après un succès) */
     public reset(key: string): void {
         this._hits.delete(key);
