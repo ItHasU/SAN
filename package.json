@@ -12,6 +12,7 @@
     "watch": "npm run watch -w @san/client & npm run watch -w @san/server & wait",
     "dev": "npm run build && (npm run watch -w @san/client & npm run watch -w @san/server & npm run dev -w @san/server & wait)",
     "test": "vitest run",
+    "test:smoke": "tools/e2e-smoke.sh",
     "test:watch": "vitest"
   },
   "devDependencies": {

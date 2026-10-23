@@ -56,6 +56,7 @@ Sur une base vide, Dagda crée le compte administrateur `admin` / `admin` : le c
 |---|---|
 | `npm run build` | Compile les trois paquets |
 | `npm run typecheck` | Vérifie le typage |
+| `npm run test:smoke` | Test de bout en bout (`tools/e2e-smoke.sh [--piper]`) : vrai serveur, base `san_smoke` recréée, vrai `bin/san` de `SAN_agent-claude_code`, carte simulée `tools/device-sim.py` (reproduit le protocole du firmware) |
 | `npm test` | Vitest ; les tests serveur utilisent PostgreSQL (`DAGDA_TEST_DB_URL`, défaut `postgresql://dagda:dagda@localhost:5432/dagda`), un schéma jetable par suite |
 
 ## Configuration
