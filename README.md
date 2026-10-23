@@ -76,3 +76,19 @@ Préfixe `/api/v1`. Erreurs JSON `{ "error": "code", "message": "…" }`.
 
 Les actions d'administration sont écrites dans le journal d'audit Dagda
 (`system_audit_log`, `kind = 'action'`, `name = 'admin.*'`).
+
+## Déploiement
+
+Images Docker (`ghcr.io/ithasu/san`, `ghcr.io/ithasu/san-tts`) publiées par la CI
+(`.github/workflows/docker.yml`) ; la ref de Dagda à cloner est dans `DAGDA_REF`.
+
+```bash
+cp .env.prod.example .env      # renseigner APP_BASE_URL, DB_PASSWORD, APP_SECRET
+docker compose pull && docker compose up -d
+```
+
+- `docker-compose.yml` : derrière un reverse proxy existant (réseau externe `PROXY_NETWORK`) ;
+  `docker-compose.standalone.yml` : port publié directement ; `docker-compose.dev.yml` : PostgreSQL seul.
+- Construction locale de l'image : depuis le dossier parent contenant `dagda/` et `SAN/` :
+  `docker build -f SAN/Dockerfile -t ghcr.io/ithasu/san .`
+- Sauvegarde : `deploy/backup.sh` (pg_dump) + copie de `./data`. Guide pas à pas : [`deploy/README.md`](deploy/README.md).
