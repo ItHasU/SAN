@@ -17,7 +17,7 @@ RUN pip install "piper-tts==${PIPER_VERSION}" \
 
 COPY server.py /app/server.py
 
-USER tts
+USER 10001
 EXPOSE 5000
 VOLUME ["/voices"]
 
