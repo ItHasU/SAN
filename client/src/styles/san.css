@@ -53,7 +53,7 @@
 }
 
 .san-page h2 { font-size: var(--font-size-h3); }
-.san-page h3 { font-size: var(--font-size-h4); }
+.san-page h3 { font-size: var(--font-size-h5); color: var(--color-text-label); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
 .san-page h4 { font-size: var(--font-size-h5); margin-bottom: var(--space-1); }
 
 .san-header {
@@ -294,6 +294,7 @@ textarea.san-code {
 
 .san-sortable li {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
     justify-content: space-between;
@@ -305,7 +306,7 @@ textarea.san-code {
 }
 
 .san-sortable .san-grow {
-    flex: 1 1 auto;
+    flex: 1 1 100%;
     min-width: 0;
 }
 

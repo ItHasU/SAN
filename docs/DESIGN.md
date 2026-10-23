@@ -170,3 +170,28 @@ et `postgresql://dagda:dagda@localhost:5432/san` (serveur de dev). ffmpeg dans `
   clip n'est pas `ready`.
 - **Purge** : en plus de la spec §9.3, les curseurs de viewers/agents disparus sont
   supprimés ; un clip orphelin n'est supprimé qu'après 1 h (il peut précéder son événement).
+
+## 11. Client web (phase 4)
+
+- **Pas d'`innerHTML` avec des données** : tout le DOM est construit par `lib/dom.ts` (`textContent`) ; les gabarits
+  de pages sont statiques. Test de non-régression : un `detail`/nudge `<img onerror>` s'affiche comme texte.
+- **Viewer web** : jeton `web_` + `viewer_id` en `localStorage` ; `POST /web/register` si absent ou sur `401`
+  (une seule nouvelle tentative, ensuite l'erreur remonte). Capacités redéclarées à chaque ouverture
+  (`audio_in` seulement avec `MediaRecorder` + `getUserMedia`, `max_detail_chars: 500`).
+- **Flux** : `fetch` + `ReadableStream`, `SseParser` indépendant du transport ; reconnexion avec backoff
+  exponentiel plafonné (1 s → 30 s, gigue) et `Last-Event-ID` = plus grand identifiant d'événement connu ;
+  resynchronisation (`sync` + flux neuf) au retour de visibilité et sur `online`. La session ne tourne que
+  tant que le tableau de bord est affiché.
+- **Acquittement** : un événement affiché (page visible) ou joué est acquitté de façon groupée (800 ms),
+  « jusqu'à » le plus grand identifiant vu, puisque le curseur est linéaire.
+- **Enregistrement vocal** : appui pour démarrer, appui pour envoyer (pas de bouton maintenu : fiable à une
+  main et au clavier), 30 s maximum affichées ; `audio/webm;codecs=opus` ou `audio/ogg`.
+- **Réglages d'ordre** : boutons monter/descendre (pas de glisser-déposer) ; envoi de toute la liste
+  (`position`, `muted`) avec `base_hash` ; sur `409` la configuration serveur est adoptée et l'utilisateur
+  est invité à recommencer.
+- **Administration** : session Dagda (cookie) ; `AdminApi.mutation()` expose `preview()` (`?dry_run=1`) puis
+  `apply()`. Les slugs hiérarchiques sont encodés (`%2F`) dans les chemins.
+- **Mobile d'abord** : cartes en une colonne (pas de tableaux), cibles `calc(var(--control-size) * 1.25)`
+  (≥ 44 px), `overflow-wrap: anywhere` sur les textes serveur. Test e2e : aucun débordement horizontal à 360 px.
+- **Tests e2e** : le `webServer` Playwright est lancé avant le `globalSetup` ; la remise à zéro de `san_e2e`
+  est donc faite par `e2e/support/start-server.mjs` (commande du webServer).

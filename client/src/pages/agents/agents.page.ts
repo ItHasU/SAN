@@ -80,6 +80,7 @@ export class AgentsPage extends SanPage {
                 onApplied: async (result) => {
                     await this.refresh();
                     showAgentToken(result.agent.name, result.token);
+                    return false as const;
                 }
             });
             return false as const;
@@ -95,6 +96,7 @@ export class AgentsPage extends SanPage {
             onApplied: async (result) => {
                 await this.refresh();
                 showAgentToken(result.agent.name, result.token);
+                return false as const;
             }
         });
     }

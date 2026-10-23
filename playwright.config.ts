@@ -67,7 +67,9 @@ export default defineConfig({
     use: {
         baseURL: BASE_URL,
         trace: "retain-on-failure",
-        launchOptions: { executablePath, env: launchEnv }
+        // Micro factice : MediaRecorder fonctionne sans matériel ni invite de permission
+        launchOptions: { executablePath, env: launchEnv, args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] },
+        permissions: ["microphone"]
     },
     projects: [
         { name: "pixel-7", use: { ...devices["Pixel 7"] } },

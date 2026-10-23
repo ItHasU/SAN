@@ -49,7 +49,8 @@ export interface ConfirmImpactOptions<T> {
     mutation: Mutation<T>;
     confirmLabel: string;
     danger?: boolean;
-    onApplied: (result: T) => void | Promise<void>;
+    /** Rend `false` si elle ouvre un autre dialogue (qui ne doit pas être refermé) */
+    onApplied: (result: T) => void | false | Promise<void | false>;
 }
 
 /**
@@ -74,7 +75,7 @@ export async function confirmImpact<T>(options: ConfirmImpactOptions<T>): Promis
                 className: options.danger === true ? "btn-danger" : "btn-primary",
                 onClick: async () => {
                     const result = await options.mutation.apply();
-                    await options.onApplied(result);
+                    return options.onApplied(result);
                 }
             }
         ]

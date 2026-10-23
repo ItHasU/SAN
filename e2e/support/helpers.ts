@@ -71,3 +71,40 @@ export class FakeAgent {
 export async function shot(page: Page, info: TestInfo, name: string): Promise<void> {
     await page.screenshot({ path: `e2e/screenshots/${info.project.name}-${name}.png`, fullPage: false });
 }
+
+/** Boîte de dialogue Dagda ouverte */
+export function dialog(page: Page) {
+    return page.locator(".dialog-backdrop:not([hidden]) .dialog");
+}
+
+/** Clique le bouton d'action d'un dialogue */
+export async function dialogAction(page: Page, label: string | RegExp): Promise<void> {
+    await dialog(page).locator(".dialog-actions button", { hasText: label }).click();
+}
+
+/** Donne au viewer web de ce navigateur une règle `*` (équivaut au bouton « M'accorder l'accès ») */
+export async function grantSelf(page: Page, canSendVoice = false): Promise<string> {
+    const id = await page.evaluate(() => window.localStorage.getItem("san.web.token.id"));
+    expect(id, "le tableau de bord doit avoir enregistré le viewer web").toBeTruthy();
+    await adminCall(page, "POST", `/viewers/${id}/rules`, { scope: "agent", pattern: "*", can_send_voice: canSendVoice });
+    return id!;
+}
+
+/** Crée un agent par l'API d'administration (session de la page) et rend son jeton */
+export async function createAgentApi(page: Page, slug: string, name: string): Promise<string> {
+    const result = await adminCall<{ token: string }>(page, "POST", "/agents", { slug, name });
+    expect(result.token).toMatch(/^agt_/);
+    return result.token;
+}
+
+/** Aucun défilement horizontal : ni la page ni la zone de contenu ne débordent */
+export async function expectNoHorizontalScroll(page: Page): Promise<void> {
+    const overflow = await page.evaluate(() => {
+        const content = document.querySelector(".shell-content") as HTMLElement | null;
+        return {
+            page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            content: content == null ? 0 : content.scrollWidth - content.clientWidth
+        };
+    });
+    expect(overflow, "débordement horizontal (px)").toEqual({ page: 0, content: 0 });
+}
