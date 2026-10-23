@@ -3,8 +3,16 @@ import { ViewerCapabilities } from "@san/shared/src/api/types";
 /** Durée maximale d'un message vocal envoyé depuis le navigateur (s) */
 export const MAX_RECORDING_S = 30;
 
-/** Types MIME d'enregistrement, par ordre de préférence (DESIGN §5) */
-export const RECORDING_TYPES = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/ogg"] as const;
+/** Types MIME d'enregistrement, par ordre de préférence (DESIGN §5) ; `audio/mp4` pour Safari iOS */
+export const RECORDING_TYPES = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/ogg", "audio/mp4"] as const;
+
+/** Nom de format déclaré dans `audio_in.formats` pour un type MIME d'enregistrement */
+function recordingFormat(type: string): string {
+    if (type.startsWith("audio/ogg")) {
+        return "ogg";
+    }
+    return type.startsWith("audio/mp4") ? "mp4" : "webm";
+}
 
 export interface CapabilityEnv {
     mediaRecorder?: { isTypeSupported(type: string): boolean } | null;
@@ -47,7 +55,7 @@ export function buildCapabilities(env: CapabilityEnv = browserEnv(), notificatio
     };
     const type = recordingType(env);
     if (env.hasGetUserMedia && type != null) {
-        capabilities.audio_in = { formats: [type.startsWith("audio/ogg") ? "ogg" : "webm"], max_duration_s: MAX_RECORDING_S };
+        capabilities.audio_in = { formats: [recordingFormat(type)], max_duration_s: MAX_RECORDING_S };
     }
     return capabilities;
 }
