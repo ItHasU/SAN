@@ -9,17 +9,18 @@ Construit sur le framework [Dagda](../dagda).
 
 ## Avancement
 
-Phase 3 sur 4 : en plus des phases 1-2 (squelette, enrôlement, `agent/state|nudge`,
-administration, permissions à motifs avec aperçu d'impact, abonnements et configuration,
-capacités, `viewer/sync`, flux SSE, `agent/inbox` en long-poll, bus `LISTEN/NOTIFY`, purge),
-l'audio : TTS (Piper ou bip de test), envoi de fichiers, messages vocaux viewer → agent,
-transcodage ffmpeg mis en cache, route `/health`, curseur initial. Client web (phase 4) : à venir.
+Fonctionnalités : enrôlement, `agent/state|nudge`, administration, permissions à motifs
+avec aperçu d'impact, abonnements et configuration, capacités, `viewer/sync`, flux SSE,
+`agent/inbox` en long-poll, bus `LISTEN/NOTIFY`, purge, audio (TTS Piper ou bip de test,
+envoi de fichiers, messages vocaux viewer → agent, transcodage ffmpeg en cache), route
+`/health`, et client web (tableau de bord mobile + administration, voir « Client web »).
 
 ## Structure
 
 ```
 shared/   contrat typé partagé (modèle Dagda volontairement vide, permissions, types)
-client/   application web (page d'accueil Dagda pour l'instant)
+client/   application web (tableau de bord, administration) — voir « Client web »
+e2e/      tests Playwright (serveur réel, base `san_e2e`, mobile d'abord)
 server/
   src/app.ts            ServerApp : monte /api/v1, migrations, tâches périodiques
   src/san/              logique métier, testable sans Express
@@ -58,6 +59,44 @@ Sur une base vide, Dagda crée le compte administrateur `admin` / `admin` : le c
 | `npm run typecheck` | Vérifie le typage |
 | `npm run test:smoke` | Test de bout en bout (`tools/e2e-smoke.sh [--piper]`) : vrai serveur, base `san_smoke` recréée, vrai `bin/san` de `SAN_agent-claude_code`, carte simulée `tools/device-sim.py` (reproduit le protocole du firmware) |
 | `npm test` | Vitest ; les tests serveur utilisent PostgreSQL (`DAGDA_TEST_DB_URL`, défaut `postgresql://dagda:dagda@localhost:5432/dagda`), un schéma jetable par suite |
+
+## Client web
+
+Application Dagda (`client/src`), **pensée pour le téléphone** (une main, réseau instable) et
+utilisable sur desktop. Toutes les classes, thèmes et icônes viennent du design system de Dagda ;
+`client/src/styles/san.css` n'ajoute que des règles en `var(--…)`. `npm run lint` (oxlint, plugin
+d'adhérence de Dagda) refuse hex, px et polices en dur dans le TypeScript.
+
+| Page (menu) | Rôle |
+|---|---|
+| Tableau de bord (accueil) | Viewer `web` en mode `auto` : agents suivis en temps réel (statut, detail, progression, « mis à jour il y a »), historique des nudges et messages vocaux (priorité `high` en évidence, lecteur audio via blob + Bearer, acquittement `POST /viewer/ack`), notifications système et vibration optionnelles, enregistrement vocal (`can_send_voice`), réglages d'ordre et de mise en sourdine (`PUT /viewer/config`, 409 géré) |
+| Administration › Demandes en attente | Code d'appairage, modèle, matériel, IP, ancienneté ; activer (nom) / refuser |
+| Administration › Viewers | Liste, puis fiche : capacités, mode, règles de permission (motif validé avec la liste blanche, couverture, `can_send_voice` grisé sans micro), diagnostic d'accès, abonnements ordonnables |
+| Administration › Agents | Création (jeton affiché **une seule fois** + exemple curl), régénération, révocation, groupes, état, viewers ayant accès |
+| Administration › Groupes | Création, membres, viewers concernés |
+
+Toute action qui modifie la couverture appelle d'abord la route avec `?dry_run=1`, affiche les viewers
+qui gagnent ou perdent l'accès, puis applique (`ui/dialogs.ts`, `confirmImpact`).
+
+Organisation : `client/src/lib/` (logique sans Dagda, testée sous jsdom : `sse.ts` parseur SSE,
+`api.ts` clients viewer/admin, `session.ts` SSE + reconnexion, `store.ts`, `glob.ts`, `time.ts`, `dom.ts`),
+`ui/` (composants et dialogues), `pages/`. Le jeton `web_` est en `localStorage` (`san.web.token`) ; il est
+redemandé par `POST /web/register` s'il manque ou sur `401`. Un viewer web neuf ne voit aucun agent : l'état
+vide propose « M'accorder l'accès » (règle `*` avec aperçu).
+
+## Tests
+
+| Commande | Contenu |
+|---|---|
+| `npm test` | Vitest : shared, client (jsdom), serveur (PostgreSQL) |
+| `npm run test:e2e` | Build puis Playwright : serveur réel (`node server/dist/main.js`) sur la base `san_e2e` **recréée à chaque exécution**, `TTS_ENGINE=fake`. Projets `pixel-7`, `iphone-13` (Chromium) et `desktop`. Captures mobiles dans `e2e/screenshots/` |
+| `npm run lint` | Lint d'adhérence au design system |
+
+Prérequis e2e : `sudo -u postgres createdb -O dagda san_e2e` (une fois), un Chromium installé (aucun
+`playwright install` n'est lancé ; l'exécutable est cherché dans `SAN_E2E_CHROMIUM`,
+`PLAYWRIGHT_BROWSERS_PATH`, `/opt/pw-browsers`, `~/.cache/ms-playwright`) et, si le conteneur n'a pas libnss,
+`SAN_E2E_LIBS` (défaut `~/.cache/pw-libs/root/usr/lib/x86_64-linux-gnu`). Le parcours « lecture d'un clip `say` »
+n'est exécuté que si `GET /api/v1/health` répond (routes audio fusionnées).
 
 ## Configuration
 

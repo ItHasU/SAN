@@ -9,3 +9,7 @@
 .env.*
 !.env.example
 !.env.prod.example
+
+/e2e/.results/
+/server/.e2e-data/
+/playwright-report/
