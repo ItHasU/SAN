@@ -33,7 +33,7 @@ Dossiers de données (créés au premier lancement) : `./data` (audio), `./pgdat
 déjà dans l'image `tts`).
 
 ```sh
-sudo chown 1000:1000 data 2>/dev/null || { mkdir -p data && sudo chown 1000:1000 data; }   # l'API tourne en uid 1000
+mkdir -p data && sudo chown 1000:1000 data     # l'API tourne en uid 1000 (utilisateur `node`)
 docker compose pull
 docker compose up -d
 docker compose ps          # api, db, tts doivent être « healthy »
@@ -59,7 +59,7 @@ se connecter, **changer immédiatement le mot de passe**.
 
 ## 5. Créer un agent
 
-Dans l'administration (ou via l'API, session admin), créer un agent : le jeton `agt_...`
+Via l'administration (`POST /api/v1/admin/agents`, session admin ; l'interface web arrive dans une phase ultérieure), créer un agent : le jeton `agt_...`
 n'est affiché qu'une fois. L'agent publie ensuite son état :
 
 ```sh
@@ -74,7 +74,7 @@ curl -X POST https://agents.example.org/api/v1/agent/state \
 
 1. La carte appelle `POST /api/v1/device/register` ; elle reçoit un jeton `dev_...` et reste « en attente »
    (max `SAN_MAX_PENDING`, limité par `SAN_REGISTER_RATE_PER_HOUR` et par IP).
-2. Dans l'administration, onglet viewers : repérer la carte en attente (code affiché sur son écran), l'**activer**
+2. Via `/api/v1/admin/viewers` (puis l'interface web) : repérer la carte en attente (code affiché sur son écran), l'**activer**
    et lui assigner groupes/abonnements.
 3. `GET /api/v1/device/status` avec le jeton `dev_` reflète l'activation.
 
