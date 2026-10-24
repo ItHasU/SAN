@@ -156,5 +156,16 @@ export const SAN_MIGRATIONS: Migration[] = [
             await tools.run(`ALTER TABLE permission_rules ADD COLUMN created_at timestamptz NOT NULL DEFAULT clock_timestamp()`);
             await tools.run(`UPDATE permission_rules r SET created_at = v.created_at FROM viewers v WHERE v.id = r.viewer_id`);
         }
+    },
+    {
+        // Type d'un nudge (start|notification|question|done|error) ; NULL pour les événements vocaux
+        id: "0004-nudge-type",
+        up: async (tools) => {
+            await tools.run(`ALTER TABLE events ADD COLUMN IF NOT EXISTS nudge_type text`);
+            await tools.run(`UPDATE events SET nudge_type = 'notification' WHERE kind = 'nudge' AND nudge_type IS NULL`);
+            await tools.run(`ALTER TABLE events DROP CONSTRAINT IF EXISTS events_nudge_type_check`);
+            await tools.run(`ALTER TABLE events ADD CONSTRAINT events_nudge_type_check
+                CHECK (nudge_type IS NULL OR nudge_type IN ('start','notification','question','done','error'))`);
+        }
     }
 ];

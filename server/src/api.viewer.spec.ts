@@ -86,11 +86,16 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
                 agent: "robot", name: "Robot", status: "working", detail: "Compilation du firmware en cours".slice(0, 80), progress: 40, stale: false,
                 updated_at: expect.any(String)
             }]);
-            expect(third.json.events).toEqual([{ id: nudge.json.id, agent: "robot", kind: "nudge", priority: "high", text: "Échec des tests", created_at: expect.any(String) }]);
+            expect(third.json.events).toEqual([{ id: nudge.json.id, agent: "robot", kind: "nudge", priority: "high", type: "notification", text: "Échec des tests", created_at: expect.any(String) }]);
+
+            // un nudge typé est renvoyé avec sa clé `type`
+            const typed = await t.api("POST", "/agent/nudge", { token: robot.token, body: { text: "Terminé", type: "done" } });
+            const fourth = await sync(device.token, q);
+            expect(fourth.json.events.find((e: any) => e.id === typed.json.id)).toMatchObject({ kind: "nudge", type: "done", priority: "normal" });
 
             // non acquitté : renvoyé ; acquitté : vide
-            expect((await sync(device.token, q)).json.events).toHaveLength(1);
-            const acked = await sync(device.token, `?ack=${nudge.json.id}&config_hash=${subscribed.json.config_hash}&caps_hash=${sha16(raw)}`);
+            expect((await sync(device.token, q)).json.events).toHaveLength(2);
+            const acked = await sync(device.token, `?ack=${typed.json.id}&config_hash=${subscribed.json.config_hash}&caps_hash=${sha16(raw)}`);
             expect(acked.json.events).toEqual([]);
             expect((await sync(device.token, `?ack=0&config_hash=${subscribed.json.config_hash}`)).json.events).toEqual([]);
 
@@ -434,7 +439,7 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
                 const received = await sse.waitFor((m) => m.event === "event", 1000);
                 expect(Date.now() - sent).toBeLessThan(1000);
                 expect(received.id).toBe(String(nudge.json.id));
-                expect(received.data).toEqual({ id: nudge.json.id, agent: "robot", kind: "nudge", priority: "high", text: "Salut", created_at: expect.any(String) });
+                expect(received.data).toEqual({ id: nudge.json.id, agent: "robot", kind: "nudge", priority: "high", type: "notification", text: "Salut", created_at: expect.any(String) });
 
                 // le même format que sync, et le curseur n'a pas bougé
                 const viaSync = await sync(card.token);

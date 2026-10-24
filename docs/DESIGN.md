@@ -34,6 +34,13 @@ structurante doit y être ajoutée.
 - **Temps réel web** : le flux `/viewer/events` est au format SSE mais le client web
   le lit avec `fetch()` + `ReadableStream` (pas `EventSource`), pour pouvoir envoyer
   `Authorization: Bearer web_…`. Pas de jeton dans l'URL.
+- **Type de nudge** (ajout à la spec §10.1) : `POST /agent/nudge` accepte `type` ∈
+  `start|notification|question|done|error` (défaut `notification`, 400 sinon). Il est
+  stocké dans `events.nudge_type` (migration `0004-nudge-type`, NULL pour les voix,
+  nudges existants migrés en `notification`, contrainte CHECK) et renvoyé sous la clé
+  `type` dans les événements `nudge` de la synchro et du SSE (jamais sur une voix).
+  Optionnel et additif : un client qui l'ignore reste compatible. Le client web
+  affiche une icône et un libellé par type ; le son et la vibration ne changent pas.
 
 ## 3. Organisation du serveur
 

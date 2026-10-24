@@ -1,4 +1,4 @@
-import { EventView } from "@san/shared/src/api/types";
+import { EventView, NudgeType } from "@san/shared/src/api/types";
 import { h, icon } from "../../lib/dom";
 import { formatClock, formatRelative } from "../../lib/time";
 import { button, reportError } from "../../ui/common";
@@ -9,6 +9,15 @@ export interface EventItemContext {
     /** L'événement est affiché ou lu : à acquitter */
     seen(eventId: number): void;
 }
+
+/** Icône et libellé par type de nudge ; `notification` (défaut) n'a pas de libellé */
+const NUDGE_TYPES: Record<NudgeType, { icon: string, label: string | null }> = {
+    start: { icon: "ph-play-circle", label: "Démarrage" },
+    notification: { icon: "ph-bell", label: null },
+    question: { icon: "ph-question", label: "Question" },
+    done: { icon: "ph-check-circle", label: "Terminé" },
+    error: { icon: "ph-x-circle", label: "Erreur" }
+};
 
 /** Un nudge ou un message vocal de l'historique ; tout le texte passe par `textContent` */
 export class EventItem {
@@ -21,15 +30,17 @@ export class EventItem {
     constructor(public readonly event: EventView, protected readonly _context: EventItemContext) {
         const high = event.priority === "high";
         const voice = event.kind === "voice";
+        const type = voice ? null : NUDGE_TYPES[event.type ?? "notification"] ?? NUDGE_TYPES.notification;
         const head = h("div", { class: "san-row san-row-between" },
             h("div", { class: "san-row" },
-                icon(voice ? "ph-speaker-high" : high ? "ph-warning-octagon" : "ph-bell"),
+                icon(type == null ? "ph-speaker-high" : high && (event.type ?? "notification") === "notification" ? "ph-warning-octagon" : type.icon),
                 h("span", { class: "san-title", text: _context.agentName(event.agent) }),
+                type?.label != null ? h("span", { class: `tag ${event.type === "error" ? "tag-danger" : "tag-outline"}`, text: type.label, data: { type: event.type! } }) : null,
                 high ? h("span", { class: "tag tag-danger", text: "Urgent" }) : null,
                 event.muted === true ? h("span", { class: "tag tag-outline", text: "muet" }) : null),
             this._time);
         const text = event.text != null && event.text !== "" ? h("p", { class: "san-detail", text: event.text }) : null;
-        this.element = h("article", { class: "san-card san-event", data: { priority: event.priority ?? "normal", kind: event.kind, id: String(event.id), muted: String(event.muted === true) } },
+        this.element = h("article", { class: "san-card san-event", data: { priority: event.priority ?? "normal", type: event.type ?? "", kind: event.kind, id: String(event.id), muted: String(event.muted === true) } },
             head, text, this._player);
         if (voice) {
             this._renderPlayer();

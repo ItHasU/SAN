@@ -28,6 +28,24 @@ describe("rendu sans injection (SPEC §14)", () => {
         expect(item.element.textContent).toContain("Urgent");
     });
 
+    it("un nudge affiche une icône et un libellé distincts par type ; notification et absent restent neutres", () => {
+        const render = (type?: "start" | "notification" | "question" | "done" | "error") => new EventItem(
+            { id: 3, agent: "a", kind: "nudge", ...(type == null ? {} : { type }), text: "x", created_at: new Date(NOW).toISOString() },
+            { agentName: (s) => s, clip: async () => new Blob(), seen: () => undefined }).element;
+        const icons = new Set<string>();
+        for (const [type, label] of [["start", "Démarrage"], ["question", "Question"], ["done", "Terminé"], ["error", "Erreur"]] as const) {
+            const element = render(type);
+            expect(element.textContent).toContain(label);
+            expect(element.dataset["type"]).toBe(type);
+            icons.add(element.querySelector("i")!.className);
+        }
+        expect(icons.size).toBe(4);
+        for (const neutral of [render(), render("notification")]) {
+            expect(neutral.querySelector("i")!.className).toContain("ph-bell");
+            expect(neutral.querySelector(".tag")).toBeNull();
+        }
+    });
+
     it("un message vocal sans clip rend le texte seul", () => {
         const item = new EventItem({ id: 2, agent: "a", kind: "voice", text: "Bonjour", created_at: new Date(NOW).toISOString() },
             { agentName: (s) => s, clip: async () => new Blob(), seen: () => undefined });

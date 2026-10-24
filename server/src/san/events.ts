@@ -21,6 +21,8 @@ export interface NewEvent {
     kind: "nudge" | "voice";
     text?: string | null;
     priority?: string | null;
+    /** Type d'un nudge (NULL pour une voix) */
+    nudgeType?: string | null;
     clipId?: string | null;
     /** Durée de vie en secondes ; l'appelant a déjà appliqué défaut et plafond */
     ttlS: number;
@@ -58,11 +60,11 @@ export async function insertEvent(db: Db, event: NewEvent): Promise<InsertedEven
     return db.withTransaction(async (conn) => {
         await conn.run(`SELECT pg_advisory_xact_lock($1)`, EVENTS_LOCK_KEY);
         const row = await conn.get<{ id: string, created_at: Date, expires_at: Date }>(
-            `INSERT INTO events (direction, agent_slug, from_viewer_id, kind, text, priority, clip_id, created_at, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, clock_timestamp(), clock_timestamp() + make_interval(secs => $8))
+            `INSERT INTO events (direction, agent_slug, from_viewer_id, kind, text, priority, clip_id, nudge_type, created_at, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $9, clock_timestamp(), clock_timestamp() + make_interval(secs => $8))
              RETURNING id, created_at, expires_at`,
             event.direction, event.agentSlug, event.fromViewerId ?? null, event.kind,
-            event.text ?? null, event.priority ?? null, event.clipId ?? null, event.ttlS
+            event.text ?? null, event.priority ?? null, event.clipId ?? null, event.ttlS, event.nudgeType ?? null
         );
         const inserted = { id: Number(row!.id), created_at: row!.created_at, expires_at: row!.expires_at };
         await notify(conn, { type: "event", id: inserted.id, direction: event.direction, agent: event.agentSlug });

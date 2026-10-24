@@ -6,6 +6,7 @@
 export type AgentStatus = "idle" | "working" | "waiting" | "error" | "done";
 export const AGENT_STATUS_VALUES: readonly AgentStatus[] = ["idle", "working", "waiting", "error", "done"];
 
+export type NudgeType = "start" | "notification" | "question" | "done" | "error";
 export type Priority = "normal" | "high";
 export type SubscriptionMode = "auto" | "manual";
 export type ViewerStatus = "pending" | "active" | "revoked";
@@ -35,6 +36,7 @@ export interface EventView {
     agent: string;
     kind: "nudge" | "voice";
     priority?: Priority;
+    type?: NudgeType;
     text?: string;
     clip?: ClipView;
     muted?: true;

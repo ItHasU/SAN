@@ -81,6 +81,17 @@ describe.runIf(inject("databaseAvailable"))("API /agent", () => {
             expect(row).toMatchObject({ text: null, priority: "normal" });
         });
 
+        it("stocke le type du nudge, \"notification\" par défaut, et refuse une valeur inconnue (400)", async () => {
+            const post = (body: unknown) => t.api("POST", "/agent/nudge", { token, body });
+            const typeOf = async (id: number) => (await t.db.runner.get<any>(`SELECT nudge_type FROM events WHERE id = $1`, id))!.nudge_type;
+            expect(await typeOf((await post({})).json.id)).toBe("notification");
+            for (const type of ["start", "notification", "question", "done", "error"]) {
+                expect(await typeOf((await post({ type })).json.id)).toBe(type);
+            }
+            expect((await post({ type: "alarm" })).status).toBe(400);
+            expect((await post({ type: 3 })).status).toBe(400);
+        });
+
         it("accepte un ttl_s plus court et plafonne un ttl_s plus long à 6 h", async () => {
             const short = await t.api("POST", "/agent/nudge", { token, body: { ttl_s: 120 } });
             expect(await lifetimeS(short.json.id)).toBe(120);

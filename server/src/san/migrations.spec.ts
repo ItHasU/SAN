@@ -16,7 +16,7 @@ describe.runIf(inject("databaseAvailable"))("migrations SAN", () => {
 
     it("crée le schéma de la spec §5 (sans users) et ne se rejoue pas", async () => {
         const first = await applyMigrations(db.runner, APP_MODEL, SAN_MIGRATIONS, "app");
-        expect(first).toEqual(["0001-san-schema", "0002-tts-jobs", "0003-tracking-start"]);
+        expect(first).toEqual(["0001-san-schema", "0002-tts-jobs", "0003-tracking-start", "0004-nudge-type"]);
         expect(await applyMigrations(db.runner, APP_MODEL, SAN_MIGRATIONS, "app")).toEqual([]);
 
         const tables = await db.runner.all<{ table_name: string }>(
@@ -28,6 +28,24 @@ describe.runIf(inject("databaseAvailable"))("migrations SAN", () => {
             expect(names, expected).toContain(expected);
         }
         expect(names).not.toContain("users");
+    });
+
+    it("0004 : les nudges existants deviennent \"notification\", les voix restent NULL, rejouable", async () => {
+        const old = await createTestDatabase("migrations-0004");
+        try {
+            await applyMigrations(old.runner, APP_MODEL, SAN_MIGRATIONS.slice(0, 3), "app");
+            await old.runner.run(`INSERT INTO agents (slug, name, token_hash) VALUES ('a', 'A', 'h')`);
+            await old.runner.run(`INSERT INTO events (direction, agent_slug, kind, text, expires_at) VALUES ('to_viewers', 'a', 'nudge', 'vieux', now() + interval '1 hour')`);
+            await old.runner.run(`INSERT INTO events (direction, agent_slug, kind, expires_at) VALUES ('to_viewers', 'a', 'voice', now() + interval '1 hour')`);
+            expect(await applyMigrations(old.runner, APP_MODEL, SAN_MIGRATIONS, "app")).toEqual(["0004-nudge-type"]);
+            const rows = await old.runner.all<{ kind: string, nudge_type: string | null }>(`SELECT kind, nudge_type FROM events ORDER BY id`);
+            expect(rows).toEqual([{ kind: "nudge", nudge_type: "notification" }, { kind: "voice", nudge_type: null }]);
+            await expect(old.runner.run(`UPDATE events SET nudge_type = 'x'`)).rejects.toThrow();
+            // la migration est idempotente : rejouée à la main, elle ne casse rien
+            await SAN_MIGRATIONS[3]!.up(old.runner as never);
+        } finally {
+            await old.dispose();
+        }
     });
 
     it("applique les contraintes CHECK et les index partiels de pending", async () => {

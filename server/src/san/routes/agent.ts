@@ -10,6 +10,7 @@ import { asObject, optionalEnum, optionalInt, optionalString, queryInt } from ".
 
 export const MAX_DETAIL_CHARS = 500;
 export const MAX_NUDGE_TEXT_CHARS = 500;
+export const NUDGE_TYPES = ["start", "notification", "question", "done", "error"] as const;
 export const PRIORITIES = ["normal", "high"] as const;
 
 /** Routes réservées aux agents (SPEC §10.1) : l'identité vient du jeton */
@@ -35,11 +36,12 @@ export function agentRoutes(db: Db, bus: EventBus): Router {
         const body = asObject(req.body);
         const text = optionalString(body, "text", MAX_NUDGE_TEXT_CHARS);
         const priority = optionalEnum(body, "priority", PRIORITIES) ?? "normal";
+        const nudgeType = optionalEnum(body, "type", NUDGE_TYPES) ?? "notification";
         const ttlS = optionalInt(body, "ttl_s", 1, 365 * 24 * 3600);
         // Une durée plus courte que le défaut est acceptée ; une plus longue est ramenée au défaut (SPEC §9.3)
         const effectiveTtl = Math.min(ttlS ?? NUDGE_TTL_S, NUDGE_TTL_S);
         const event = await insertEvent(db, {
-            direction: "to_viewers", agentSlug: agent.slug, kind: "nudge", text, priority, ttlS: effectiveTtl
+            direction: "to_viewers", agentSlug: agent.slug, kind: "nudge", text, priority, nudgeType, ttlS: effectiveTtl
         });
         res.status(201).json({ id: event.id, expires_at: event.expires_at });
     });

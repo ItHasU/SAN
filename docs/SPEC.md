@@ -346,7 +346,7 @@ L'identité de l'agent est déduite de son jeton : aucune route ne prend son slu
 | Méthode | Route | Description |
 |---|---|---|
 | `POST` | `/agent/state` | Met à jour l'état. Corps : `{status, detail?, progress?, ttl_s?}` |
-| `POST` | `/agent/nudge` | Émet un nudge. Corps : `{text?, priority?: "normal"\|"high", ttl_s?}` |
+| `POST` | `/agent/nudge` | Émet un nudge. Corps : `{text?, priority?: "normal"\|"high", type?: "start"\|"notification"\|"question"\|"done"\|"error", ttl_s?}`. `type` (défaut `notification`) qualifie le nudge ; valeur inconnue : 400. Il est renvoyé sous la clé `type` dans les événements `nudge` de la synchronisation et du flux SSE |
 | `POST` | `/agent/say` | Message vocal par TTS. Corps : `{text, priority?, ttl_s?}`. Réponse `202` avec l'id du clip |
 | `POST` | `/agent/voice` | Message vocal à partir d'un fichier (`audio/wav`, `audio/mpeg`, `audio/ogg`) |
 | `GET` | `/agent/inbox?ack=<id>&wait=<s>` | Messages reçus des viewers, en long-poll (`wait` ≤ 60). `ack` acquitte avant lecture |
@@ -423,7 +423,7 @@ Le serveur applique d'abord l'acquittement, met à jour `last_seen_at` et `batte
       "updated_at": "2026-10-23T15:03:10Z" }
   ],
   "events": [
-    { "id": 808, "agent": "build-1", "kind": "nudge", "priority": "high",
+    { "id": 808, "agent": "build-1", "kind": "nudge", "priority": "high", "type": "error",
       "text": "Échec des tests", "created_at": "2026-10-23T15:04:40Z" },
     { "id": 809, "agent": "veille", "kind": "voice", "text": "Trois nouveaux articles.",
       "clip": { "id": "c_01J…", "format": "ima_adpcm", "sample_rate": 8000,

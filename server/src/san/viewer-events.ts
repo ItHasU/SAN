@@ -23,6 +23,8 @@ export interface EventView {
     agent: string;
     kind: "nudge" | "voice";
     priority?: string;
+    /** Type d'un nudge : start|notification|question|done|error */
+    type?: string;
     text?: string;
     clip?: ClipView;
     /** Présent (true) seulement si l'agent est muet pour ce viewer */
@@ -130,6 +132,7 @@ interface EventRow {
     kind: "nudge" | "voice";
     text: string | null;
     priority: string | null;
+    nudge_type: string | null;
     created_at: Date;
     clip_id: string | null;
     clip_status: string | null;
@@ -174,7 +177,7 @@ export async function fetchViewerEvents(
     const starts = await trackingStarts(sql, viewerId, config);
     const slugs = [...byAgent.keys()];
     const rows = await sql.all<EventRow>(
-        `SELECT e.id::text AS id, e.agent_slug, e.kind, e.text, e.priority, e.created_at,
+        `SELECT e.id::text AS id, e.agent_slug, e.kind, e.text, e.priority, e.nudge_type, e.created_at,
                 e.clip_id, c.status AS clip_status, c.duration_ms AS clip_duration_ms
          FROM events e
          JOIN unnest($2::text[], $4::timestamptz[]) AS t(slug, since) ON t.slug = e.agent_slug
@@ -204,6 +207,9 @@ export async function fetchViewerEvents(
         const event: EventView = { id: Number(row.id), agent: row.agent_slug, kind: row.kind, created_at: row.created_at.toISOString() };
         if (row.priority != null) {
             event.priority = row.priority;
+        }
+        if (row.kind === "nudge") {
+            event.type = row.nudge_type ?? "notification";
         }
         if (row.text != null) {
             event.text = row.text;
