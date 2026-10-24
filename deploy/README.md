@@ -102,6 +102,8 @@ l'ancien tag (sha-xxxxxxx), puis restaurer le dump si le schéma a changé.
 
 Cron : `0 3 * * * cd /opt/san && deploy/backup.sh /srv/backups/san`
 
+Avec `docker-compose.standalone.yml` : `COMPOSE_FILE=docker-compose.standalone.yml deploy/backup.sh` (testé : dump puis restauration ci-dessous, les 3 services redémarrent `healthy`).
+
 Restauration (sur une pile à l'arrêt sauf `db`) :
 
 ```sh
