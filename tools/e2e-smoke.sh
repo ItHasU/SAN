@@ -12,7 +12,7 @@
 #   --url URL   vise un serveur SAN déjà en marche (ex. stack Docker,
 #               http://localhost:3300, admin/admin) : ni build, ni base, ni Piper,
 #               ni démarrage de serveur (--piper/--no-build sont ignorés). Rejouable :
-#               l'agent a un slug unique (smoke-XXXXXX) ; à la fin l'agent est supprimé
+#               l'agent a un slug unique (smoke-XXXXXX) ; à la fin l'agent est purgé
 #               et la carte révoquée. Le serveur lui-même n'est jamais arrêté.
 #               Identifiants : SAN_ADMIN_LOGIN / SAN_ADMIN_PASSWORD (admin/admin).
 #
@@ -49,7 +49,7 @@ cleanup() {
   trap - EXIT
   if [ -n "$REMOTE_URL" ] && [ -f "${JAR:-/nonexistent}" ]; then # nettoyage de ce que le script a créé
     [ -n "$VID" ] && [ "$REVOKED" = 0 ] && curl -s -o /dev/null -b "$JAR" -X POST "$URL/api/v1/admin/viewers/$VID/revoke" || true
-    curl -s -o /dev/null -b "$JAR" -X DELETE "$URL/api/v1/admin/agents/$SLUG" || true
+    curl -s -o /dev/null -b "$JAR" -X DELETE "$URL/api/v1/admin/agents/$SLUG?purge=true" || true
   fi
   for p in "${PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done
   wait 2>/dev/null || true
