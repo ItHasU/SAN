@@ -4,10 +4,17 @@
 # et carte simulée (tools/device-sim.py, qui reproduit le firmware).
 #
 #   tools/e2e-smoke.sh [--piper] [--keep] [--no-build]
+#   tools/e2e-smoke.sh --url URL [--keep]
 #
 #   --piper     démarre le vrai serveur Piper (tts/server.py) au lieu de TTS_ENGINE=fake
 #   --keep      conserve le répertoire temporaire (journaux, clips) à la fin
 #   --no-build  ne recompile pas le serveur
+#   --url URL   vise un serveur SAN déjà en marche (ex. stack Docker,
+#               http://localhost:3300, admin/admin) : ni build, ni base, ni Piper,
+#               ni démarrage de serveur (--piper/--no-build sont ignorés). Rejouable :
+#               l'agent a un slug unique (smoke-XXXXXX) ; à la fin l'agent est supprimé
+#               et la carte révoquée. Le serveur lui-même n'est jamais arrêté.
+#               Identifiants : SAN_ADMIN_LOGIN / SAN_ADMIN_PASSWORD (admin/admin).
 #
 # Variables : AGENT_REPO (défaut ../../SAN_agent-claude_code), PIPER_VENV, PIPER_VOICES
 # (sinon recherchés ; à défaut, créés selon tts/README.md), SMOKE_DB (san_smoke).
@@ -16,21 +23,34 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AGENT_REPO="${AGENT_REPO:-$ROOT/../SAN_agent-claude_code}"
 DB="${SMOKE_DB:-san_smoke}"
-PIPER=0 KEEP=0 BUILD=1
-for a in "$@"; do
+PIPER=0 KEEP=0 BUILD=1 REMOTE_URL=""
+while [ $# -gt 0 ]; do
+  a="$1"; shift
   case "$a" in
+    --url) [ $# -gt 0 ] || { echo "--url demande une valeur" >&2; exit 2; }; REMOTE_URL="${1%/}"; shift ;;
+    --url=*) REMOTE_URL="${a#--url=}"; REMOTE_URL="${REMOTE_URL%/}" ;;
     --piper) PIPER=1 ;;
     --keep) KEEP=1 ;;
     --no-build) BUILD=0 ;;
-    -h|--help) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "option inconnue : $a" >&2; exit 2 ;;
   esac
 done
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/san-smoke.XXXXXX")"
 PIDS=()
+SLUG="smoke-agent"; VID=""
+if [ -n "$REMOTE_URL" ]; then # slug unique : rejouable sur un serveur déjà utilisé
+  SLUG="smoke-$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 6 || true)"
+fi
+REVOKED=0
 cleanup() {
   local rc=$?
+  trap - EXIT
+  if [ -n "$REMOTE_URL" ] && [ -f "${JAR:-/nonexistent}" ]; then # nettoyage de ce que le script a créé
+    [ -n "$VID" ] && [ "$REVOKED" = 0 ] && curl -s -o /dev/null -b "$JAR" -X POST "$URL/api/v1/admin/viewers/$VID/revoke" || true
+    curl -s -o /dev/null -b "$JAR" -X DELETE "$URL/api/v1/admin/agents/$SLUG" || true
+  fi
   for p in "${PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done
   wait 2>/dev/null || true
   if [ $rc -ne 0 ]; then
@@ -47,7 +67,9 @@ step() { printf '\n== %s\n' "$*"; }
 ok() { pass=$((pass + 1)); printf '  ok   %s\n' "$*"; }
 die() { printf '  ECHEC %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "commande requise introuvable : $1"; }
-for c in node npm curl python3 ffprobe ffmpeg jq sudo; do need "$c"; done
+if [ -n "$REMOTE_URL" ]; then BUILD=0; PIPER=0; REQ=(curl python3 ffprobe ffmpeg jq)
+else REQ=(node npm curl python3 ffprobe ffmpeg jq sudo); fi
+for c in "${REQ[@]}"; do need "$c"; done
 [ -x "$AGENT_REPO/bin/san" ] || die "bin/san introuvable dans $AGENT_REPO"
 
 # check "description" valeur-attendue valeur-obtenue
@@ -65,6 +87,13 @@ probe() { # fichier champ... → ffprobe en valeurs séparées par des espaces
 duration() { ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$1"; }
 near() { python3 -I -c "import sys; a,b,t=map(float,sys.argv[1:]); sys.exit(0 if abs(a-b)<=t else 1)" "$1" "$2" "$3"; }
 
+if [ -n "$REMOTE_URL" ]; then
+  step "Serveur existant"
+  URL="$REMOTE_URL"
+  TTS_ENV=(TTS_ENGINE=externe)
+  wait_http "$URL/api/v1/health" 15 || die "le serveur ne répond pas sur $URL"
+  ok "serveur joignable sur $URL (aucun démarrage, aucune base touchée)"
+else
 # --- 1. Construction -------------------------------------------------------
 if [ "$BUILD" = 1 ]; then
   step "Construction du serveur"
@@ -121,11 +150,12 @@ mkdir -p "$TMP/data"
 PIDS+=($!)
 wait_http "$URL/api/v1/health" 60 || die "le serveur ne répond pas sur $URL"
 ok "serveur démarré sur $URL (${TTS_ENV[0]})"
+fi
 
 # --- 3. Administrateur -------------------------------------------------------
 step "Connexion administrateur (formulaire /login de Dagda)"
 JAR="$TMP/jar"
-code="$(curl -s -o /dev/null -w '%{http_code}' -c "$JAR" --data-urlencode login=admin --data-urlencode password=admin "$URL/login")"
+code="$(curl -s -o /dev/null -w '%{http_code}' -c "$JAR" --data-urlencode "login=${SAN_ADMIN_LOGIN:-admin}" --data-urlencode "password=${SAN_ADMIN_PASSWORD:-admin}" "$URL/login")"
 check "POST /login → 302" 302 "$code"
 admin() { # METHOD chemin [json] → corps ; échoue si HTTP >= 400
   local m="$1" p="$2" out
@@ -138,7 +168,7 @@ check "admin sans session → 401" 401 "$anon"
 
 # --- 4. Agent ----------------------------------------------------------------
 step "Agent"
-created="$(admin POST /admin/agents '{"slug":"smoke-agent","name":"Smoke"}')"
+created="$(admin POST /admin/agents '{"slug":"'"$SLUG"'","name":"Smoke"}')"
 AGT="$(printf '%s' "$created" | jq -r .token)"
 case "$AGT" in agt_*) ok "agent créé, jeton agt_…" ;; *) die "jeton agent absent : $created" ;; esac
 
@@ -158,30 +188,30 @@ pending="$(admin GET "/admin/viewers?status=pending")"
 truthy "la carte figure parmi les viewers en attente" ".viewers[] | select(.id==\"$VID\")" "$pending"
 admin POST "/admin/viewers/$VID/activate" '{"name":"Carte test"}' >/dev/null
 check "status active" active "$(sim status | jq -r .status)"
-admin POST "/admin/viewers/$VID/rules" '{"scope":"agent","pattern":"smoke-*","can_send_voice":true}' >/dev/null
-ok "règle smoke-* (can_send_voice) créée"
+admin POST "/admin/viewers/$VID/rules" '{"scope":"agent","pattern":"'"$SLUG"'","can_send_voice":true}' >/dev/null
+ok "règle $SLUG (can_send_voice) créée"
 
 s="$(sim sync)"
 check "premier réveil : capacités envoyées" true "$(printf '%s' "$s" | jq -r .capabilities_sent)"
 check "premier réveil : configuration reçue" true "$(printf '%s' "$s" | jq -r .config_changed)"
 cfg="$(sim config)"
 check "config.mode" manual "$(printf '%s' "$cfg" | jq -r .config.mode)"
-truthy "agent visible, marqué new, can_send_voice" '.config.agents[0] | .agent=="smoke-agent" and .new==true and .can_send_voice==true' "$cfg"
-st="$(sim config-put --toggle smoke-agent --stale-hash)"
+truthy "agent visible, marqué new, can_send_voice" ".config.agents[0] | .agent==\"$SLUG\" and .new==true and .can_send_voice==true" "$cfg"
+st="$(sim config-put --toggle "$SLUG" --stale-hash)"
 check "PUT config avec base_hash périmé → 409" true "$(printf '%s' "$st" | jq -r .conflict)"
-put="$(sim config-put --toggle smoke-agent)"
+put="$(sim config-put --toggle "$SLUG")"
 check "PUT config → abonné" true "$(printf '%s' "$put" | jq -r '.config.agents[0].subscribed')"
 
 # --- 6. Agent → carte --------------------------------------------------------
 step "Agent réel (bin/san) → carte"
 "$SAN" state working "Compilation du firmware" --progress 40 --ttl 300 >/dev/null
 s="$(sim sync)"
-truthy "état reçu (working, 40 %, détail)" '.states[] | select(.agent=="smoke-agent") | .status=="working" and .progress==40 and .detail=="Compilation du firmware" and .stale==false' "$s"
+truthy "état reçu (working, 40 %, détail)" ".states[] | select(.agent==\"$SLUG\") | .status==\"working\" and .progress==40 and .detail==\"Compilation du firmware\" and .stale==false" "$s"
 check "sync sans capacités ni config à renvoyer" "false false" "$(printf '%s' "$s" | jq -r '"\(.capabilities_sent) \(.config_changed)"')"
 
 "$SAN" nudge "Échec des tests" --high >/dev/null
 s="$(sim sync)"
-truthy "nudge high reçu avec son texte" '.events[] | select(.kind=="nudge") | .priority=="high" and .text=="Échec des tests" and .agent=="smoke-agent"' "$s"
+truthy "nudge high reçu avec son texte" ".events[] | select(.kind==\"nudge\") | .priority==\"high\" and .text==\"Échec des tests\" and .agent==\"$SLUG\"" "$s"
 
 TEXT="Bonjour, ceci est un test de synthèse vocale."
 t0=$SECONDS
@@ -204,7 +234,8 @@ F="$TMP/clips/$CLIP.wav"
 check "clip : codec" adpcm_ima_wav "$(probe codec_name "$F")"
 check "clip : 16000 Hz mono" "16000 1" "$(probe sample_rate,channels "$F")"
 D="$(duration "$F")"
-if [ "$PIPER" = 1 ]; then near "$D" 3.0 2.5 && ok "clip Piper : durée ${D}s plausible (synthèse+livraison ${TTS_S}s)" || die "durée Piper ${D}s"
+if [ -n "$REMOTE_URL" ]; then near "$D" 3.0 2.5 && ok "clip du serveur : durée ${D}s plausible (synthèse+livraison ${TTS_S}s)" || die "durée du clip ${D}s"
+elif [ "$PIPER" = 1 ]; then near "$D" 3.0 2.5 && ok "clip Piper : durée ${D}s plausible (synthèse+livraison ${TTS_S}s)" || die "durée Piper ${D}s"
 else near "$D" 2.25 0.1 && ok "clip fake : durée ${D}s (45 caractères × 0,05 s)" || die "durée fake ${D}s"; fi
 truthy "la carte a décodé l'ADPCM et obtenu un signal non nul" '.clips[0] | .format=="ima_adpcm" and .rms>500 and .rate==16000' "$s"
 ve="$(printf '%s' "$s" | jq -c '.events[] | select(.kind=="voice")')"
@@ -216,12 +247,12 @@ ok "fake-agent.sh --once terminé"
 got=0
 wait_clip 2 90 || die "les deux clips du faux agent ne sont pas arrivés"
 s="$(sim sync)"
-truthy "dernier état = idle « Faux agent terminé »" '.states[] | select(.agent=="smoke-agent") | .status=="idle" and .detail=="Faux agent terminé"' "$s"
+truthy "dernier état = idle « Faux agent terminé »" ".states[] | select(.agent==\"$SLUG\") | .status==\"idle\" and .detail==\"Faux agent terminé\"" "$s"
 check "le curseur de la carte a avancé jusqu'au dernier événement" 0 "$(printf '%s' "$(sim sync)" | jq '.events | length')"
 
 # --- 7. Carte → agent --------------------------------------------------------
 step "Carte → agent (vocal)"
-up="$(sim upload smoke-agent --seconds 1.5)"
+up="$(sim upload "$SLUG" --seconds 1.5)"
 check "upload accepté" false "$(printf '%s' "$up" | jq -r .refused)"
 UPCLIP="$(printf '%s' "$up" | jq -r .clip_id)"
 inbox="$("$SAN" inbox)"
@@ -240,7 +271,7 @@ check "inbox --ack vide la boîte" 0 "$("$SAN" inbox --ack "$last" | jq '.events
 # --- 8. Garde-fous -----------------------------------------------------------
 step "Garde-fous"
 check "jeton inconnu → 401" 401 "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer dev_inconnu' "$URL/api/v1/viewer/sync")"
-admin POST "/admin/viewers/$VID/revoke" >/dev/null
+admin POST "/admin/viewers/$VID/revoke" >/dev/null; REVOKED=1
 check "carte révoquée → 401 (le firmware repasse en REGISTER)" 401 "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $(jq -r .token "$TMP/card.json")" "$URL/api/v1/viewer/sync")"
 s="$(sim sync)"
 check "device-sim efface son jeton après 401" true "$(printf '%s' "$s" | jq -r .unauthorized)"
