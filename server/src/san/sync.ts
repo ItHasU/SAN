@@ -1,7 +1,7 @@
 import { Db } from "./db";
 import { advanceCursor, getCursor } from "./cursors";
 import { computeConfig, configHash, trackedAgents, ViewerConfig } from "./viewer-config";
-import { EventView, fetchStates, fetchViewerEvents, StateView, SYNC_PAGE_SIZE } from "./viewer-events";
+import { EventView, fetchStates, fetchViewerEvents, StateView, SYNC_PAGE_SIZE, trackingStarts } from "./viewer-events";
 
 /** Synchronisation d'un viewer (SPEC §10.4, DESIGN §4) */
 
@@ -44,7 +44,7 @@ export async function syncViewer(db: Db, viewerId: string, query: SyncQuery, now
     const capabilities = viewer?.capabilities ?? null;
 
     const tracked = trackedAgents(config).map((agent) => agent.agent);
-    const states = await fetchStates(db, tracked, capabilities, now);
+    const states = await fetchStates(db, tracked, capabilities, now, { viewerId, starts: await trackingStarts(db, viewerId, config) });
     const { events, has_more } = await fetchViewerEvents(db, viewerId, config, capabilities, cursor, SYNC_PAGE_SIZE);
     const nextSyncS = has_more ? MORE_NEXT_SYNC_S : DEFAULT_NEXT_SYNC_S;
 

@@ -33,7 +33,8 @@ export async function purgeExpiredEvents(sql: Sql, now: Date = new Date()): Prom
 /**
  * Événements `to_viewers` d'identifiant ≤ plus petit curseur des viewers actifs.
  * Un viewer actif sans curseur compte pour 0 ; sans viewer actif, rien n'est
- * supprimé (l'expiration s'en charge).
+ * supprimé (l'expiration s'en charge). Un message vocal reste tant qu'une carte
+ * active ne l'a pas marqué lu (`voice_plays`) : il compte dans ses vocaux en attente.
  */
 export async function purgeDeliveredViewerEvents(sql: Sql): Promise<number> {
     const rows = await sql.all<{ id: string }>(
@@ -41,6 +42,9 @@ export async function purgeDeliveredViewerEvents(sql: Sql): Promise<number> {
             SELECT COALESCE(min(COALESCE(c.last_acked_event_id, 0)), 0)
             FROM viewers v LEFT JOIN cursors c ON c.principal_type = 'viewer' AND c.principal_id = v.id
             WHERE v.status = 'active')
+           AND NOT (kind = 'voice' AND EXISTS (
+               SELECT 1 FROM viewers d WHERE d.status = 'active' AND d.kind = 'device'
+                 AND NOT EXISTS (SELECT 1 FROM voice_plays p WHERE p.viewer_id = d.id AND p.event_id = events.id)))
          RETURNING id`
     );
     return rows.length;

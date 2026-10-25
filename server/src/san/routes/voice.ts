@@ -185,6 +185,29 @@ export function voiceRoutes(db: Db, config: SanConfig, audio: AudioService, tts:
     });
 
     /**
+     * Marque lu le message vocal pour ce viewer (idempotent) : il ne compte plus dans
+     * `voice_pending` de l'agent. Mêmes conditions de visibilité que le téléchargement.
+     */
+    router.post("/viewer/voice/:clip/played", async (req, res) => {
+        const viewer = viewerOf(res);
+        const clipId = String(req.params["clip"]);
+        const rows = CLIP_ID_RE.test(clipId)
+            ? await db.all<{ id: string }>(
+                `INSERT INTO voice_plays (viewer_id, event_id)
+                 SELECT $1::text, e.id FROM events e
+                 JOIN agents a ON a.slug = e.agent_slug AND a.revoked_at IS NULL
+                 WHERE e.direction = 'to_viewers' AND e.kind = 'voice' AND e.clip_id = $2
+                   AND EXISTS (SELECT 1 FROM permission_rules r WHERE r.viewer_id = $1 AND ${RULE_COVERS_AGENT_SQL})
+                 ON CONFLICT DO NOTHING RETURNING event_id AS id`, viewer.id, clipId)
+            : [];
+        if (rows.length === 0 && !(CLIP_ID_RE.test(clipId) && await db.get(
+            `SELECT 1 FROM voice_plays p JOIN events e ON e.id = p.event_id WHERE p.viewer_id = $1 AND e.clip_id = $2`, viewer.id, clipId))) {
+            throw notFound("Message vocal introuvable.");
+        }
+        res.json({ ok: true });
+    });
+
+    /**
      * Message vocal d'un viewer vers un agent. Le droit (`can_send_voice` effectif :
      * règle + `audio_in` déclaré) est vérifié avant de lire le corps.
      */

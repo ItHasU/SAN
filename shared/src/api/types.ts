@@ -21,6 +21,10 @@ export interface StateView {
     progress: number | null;
     stale: boolean;
     updated_at: string;
+    /** Vocaux non lus par ce viewer (pastille de la carte) ; absent si le serveur ne le calcule pas */
+    voice_pending?: number;
+    /** Identifiants de ces clips, du plus ancien au plus récent (20 au plus) */
+    voice_pending_clips?: string[];
 }
 
 export interface ClipView {

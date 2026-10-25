@@ -3,7 +3,7 @@ import { EventBus, BusMessage } from "./bus";
 import { getCursor } from "./cursors";
 import { Db } from "./db";
 import { computeConfig, configHash, trackedAgents, ViewerConfig } from "./viewer-config";
-import { fetchStates, fetchViewerEvents, SYNC_PAGE_SIZE } from "./viewer-events";
+import { fetchStates, fetchViewerEvents, SYNC_PAGE_SIZE, trackingStarts } from "./viewer-events";
 
 /** Flux SSE `GET /viewer/events` (SPEC §10.3, DESIGN §2) */
 
@@ -173,7 +173,7 @@ class SseConnection {
             const wanted = new Set(this._states);
             this._states.clear();
             const slugs = trackedAgents(this._config!).map((agent) => agent.agent).filter((slug) => wanted.has(slug));
-            for (const state of await fetchStates(this._db, slugs, this._capabilities)) {
+            for (const state of await fetchStates(this._db, slugs, this._capabilities, new Date(), { viewerId: this._viewerId, starts: await trackingStarts(this._db, this._viewerId, this._config!) })) {
                 this._write(`event: state\ndata: ${JSON.stringify(state)}\n\n`);
             }
         }

@@ -4,10 +4,10 @@ import { ApiError } from "../lib/api";
 import { Child, h, icon, Props } from "../lib/dom";
 
 export const STATUS_LABELS: Record<AgentStatus, string> = {
-    idle: "Au repos",
+    idle: "Prêt",
     working: "En cours",
-    waiting: "En attente",
-    error: "Erreur",
+    waiting: "Question",
+    error: "Problème",
     done: "Terminé"
 };
 

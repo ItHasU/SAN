@@ -167,5 +167,18 @@ export const SAN_MIGRATIONS: Migration[] = [
             await tools.run(`ALTER TABLE events ADD CONSTRAINT events_nudge_type_check
                 CHECK (nudge_type IS NULL OR nudge_type IN ('start','notification','question','done','error'))`);
         }
+    },
+    {
+        // Messages vocaux lus par un viewer : compteur de vocaux en attente (pastille de la carte)
+        id: "0005-voice-plays",
+        up: async (tools) => {
+            await tools.run(`
+                CREATE TABLE voice_plays (
+                    viewer_id text   NOT NULL REFERENCES viewers ON DELETE CASCADE,
+                    event_id  bigint NOT NULL REFERENCES events ON DELETE CASCADE,
+                    played_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+                    PRIMARY KEY (viewer_id, event_id)
+                )`);
+        }
     }
 ];

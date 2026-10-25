@@ -40,6 +40,10 @@ export interface StateView {
     progress: number | null;
     stale: boolean;
     updated_at: string;
+    /** Messages vocaux non lus par ce viewer (ni expirés, ni marqués lus) ; fourni seulement avec `viewerId` */
+    voice_pending?: number;
+    /** Identifiants de ces clips, du plus ancien au plus récent (20 au plus) */
+    voice_pending_clips?: string[];
 }
 
 type Capabilities = Record<string, any> | null | undefined;
@@ -107,7 +111,9 @@ function stateView(row: StateRow, capabilities: Capabilities, now: Date): StateV
 }
 
 /** États des agents donnés (ceux qui en ont un), dans l'ordre de `slugs` */
-export async function fetchStates(sql: Sql, slugs: string[], capabilities: Capabilities, now: Date = new Date()): Promise<StateView[]> {
+export async function fetchStates(
+    sql: Sql, slugs: string[], capabilities: Capabilities, now: Date = new Date(), pendingFor?: { viewerId: string, starts: Map<string, Date | null> }
+): Promise<StateView[]> {
     if (slugs.length === 0) {
         return [];
     }
@@ -119,7 +125,43 @@ export async function fetchStates(sql: Sql, slugs: string[], capabilities: Capab
     );
     const order = new Map(slugs.map((slug, index) => [slug, index]));
     rows.sort((a, b) => order.get(a.slug)! - order.get(b.slug)!);
-    return rows.map((row) => stateView(row, capabilities, now));
+    const views = rows.map((row) => stateView(row, capabilities, now));
+    if (pendingFor != null) {
+        const pending = await pendingVoiceClips(sql, pendingFor.viewerId, slugs, pendingFor.starts);
+        for (const view of views) {
+            const clips = pending.get(view.agent) ?? [];
+            view.voice_pending = clips.length;
+            view.voice_pending_clips = clips.slice(0, MAX_PENDING_CLIPS);
+        }
+    }
+    return views;
+}
+
+const MAX_PENDING_CLIPS = 20;
+
+/** Clips vocaux prêts, non expirés et non lus par le viewer, par agent, du plus ancien au plus récent */
+export async function pendingVoiceClips(sql: Sql, viewerId: string, slugs: string[], starts: Map<string, Date | null>): Promise<Map<string, string[]>> {
+    const result = new Map<string, string[]>();
+    if (slugs.length === 0) {
+        return result;
+    }
+    const rows = await sql.all<{ agent_slug: string, clip_id: string }>(
+        `SELECT e.agent_slug, e.clip_id
+         FROM events e
+         JOIN unnest($2::text[], $3::timestamptz[]) AS t(slug, since) ON t.slug = e.agent_slug
+         JOIN voice_clips c ON c.id = e.clip_id AND c.status = 'ready'
+         WHERE e.direction = 'to_viewers' AND e.kind = 'voice' AND e.expires_at > now()
+           AND (t.since IS NULL OR e.created_at >= t.since)
+           AND NOT EXISTS (SELECT 1 FROM voice_plays p WHERE p.viewer_id = $1 AND p.event_id = e.id)
+         ORDER BY e.id`,
+        viewerId, slugs as never, slugs.map((slug) => starts.get(slug)?.toISOString() ?? null) as never
+    );
+    for (const row of rows) {
+        const list = result.get(row.agent_slug) ?? [];
+        list.push(row.clip_id);
+        result.set(row.agent_slug, list);
+    }
+    return result;
 }
 
 //#endregion

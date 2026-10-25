@@ -84,7 +84,7 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
             const nudge = await t.api("POST", "/agent/nudge", { token: robot.token, body: { text: "Échec des tests", priority: "high" } });
             const third = await sync(device.token, q);
             expect(third.json.states).toEqual([{
-                agent: "robot", name: "Robot", status: "working", detail: "Compilation du firmware en cours".slice(0, 80), progress: 40, stale: false,
+                agent: "robot", name: "Robot", status: "working", detail: "Compilation du firmware en cours".slice(0, 80), progress: 40, stale: false, voice_pending: 0, voice_pending_clips: [],
                 updated_at: expect.any(String)
             }]);
             expect(third.json.events).toEqual([{ id: nudge.json.id, agent: "robot", kind: "nudge", priority: "high", type: "notification", text: "Échec des tests", created_at: expect.any(String) }]);
@@ -467,7 +467,7 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
                 // état d'un agent suivi
                 await t.api("POST", "/agent/state", { token: robot.token, body: { status: "working", detail: "Calcul", progress: 10 } });
                 const state = await sse.waitFor((m) => m.event === "state", 1000);
-                expect(state.data).toEqual({ agent: "robot", name: "Robot", status: "working", detail: "Calcul", progress: 10, stale: false, updated_at: expect.any(String) });
+                expect(state.data).toEqual({ agent: "robot", name: "Robot", status: "working", detail: "Calcul", progress: 10, stale: false, voice_pending: 0, voice_pending_clips: [], updated_at: expect.any(String) });
             } finally {
                 sse.close();
             }
@@ -634,6 +634,54 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
                 expect((await t.api("GET", `/agent/inbox${query}`, { token: robot.token })).status, query).toBe(400);
             }
             expect((await t.api("GET", "/agent/inbox")).status).toBe(401);
+        });
+    });
+
+    describe("vocaux en attente (pastille de la carte)", () => {
+        async function voiceFor(slug: string, ttlS = 3600): Promise<string> {
+            const clipId = newClipId();
+            await t.db.runner.run(`INSERT INTO voice_clips (id, source, status, duration_ms) VALUES ($1, 'agent_upload', 'ready', 1000)`, clipId);
+            await insertEvent(t.db.runner as any, { direction: "to_viewers", agentSlug: slug, kind: "voice", clipId, ttlS });
+            return clipId;
+        }
+        const state = async (token: string) => (await sync(token)).json.states.find((s: any) => s.agent === "robot");
+
+        it("voice_pending / voice_pending_clips dans les états, décrémentés par POST /viewer/voice/:clip/played (idempotent)", async () => {
+            const robot = await createAgent(t, cookie, "robot");
+            const card = await readyCard();
+            await t.api("POST", "/agent/state", { token: robot.token, body: { status: "idle" } });
+            expect(await state(card.token)).toMatchObject({ voice_pending: 0, voice_pending_clips: [] });
+            const a = await voiceFor("robot");
+            const b = await voiceFor("robot");
+            await voiceFor("robot", 1).then(() => t.db.runner.run(`UPDATE events SET expires_at = now() - interval '1 second' WHERE id = (SELECT max(id) FROM events)`));
+            expect(await state(card.token)).toMatchObject({ voice_pending: 2, voice_pending_clips: [a, b] });
+            // l'acquittement du curseur ne change pas le compteur
+            const last = (await sync(card.token)).json.events.at(-1).id;
+            await sync(card.token, `?ack=${last}`);
+            expect(await state(card.token)).toMatchObject({ voice_pending: 2 });
+            for (let i = 0; i < 2; i++) {
+                expect((await t.api("POST", `/viewer/voice/${a}/played`, { token: card.token })).json).toEqual({ ok: true });
+            }
+            expect(await state(card.token)).toMatchObject({ voice_pending: 1, voice_pending_clips: [b] });
+            expect((await t.api("POST", `/viewer/voice/${newClipId()}/played`, { token: card.token })).status).toBe(404);
+            expect((await t.api("POST", `/viewer/voice/nope/played`, { token: card.token })).status).toBe(404);
+            expect((await t.api("POST", `/viewer/voice/${a}/played`)).status).toBe(401);
+        });
+
+        it("le compteur est propre à chaque viewer et l'événement vocal n'est purgé qu'une fois lu par la carte", async () => {
+            const robot = await createAgent(t, cookie, "robot");
+            const card = await readyCard();
+            await t.api("POST", "/agent/state", { token: robot.token, body: { status: "idle" } });
+            const clip = await voiceFor("robot");
+            const nudge = await t.api("POST", "/agent/nudge", { token: robot.token, body: { text: "x" } });
+            await sync(card.token, `?ack=${nudge.json.id}`);
+            const { runPeriodicTasks } = await import("./san/purge");
+            // le nudge est purgé, le vocal non lu reste (et reste téléchargeable)
+            expect((await runPeriodicTasks(t.db.runner as any, { pendingMaxAgeDays: 7 })).deliveredEvents).toBe(1);
+            expect((await t.db.runner.all(`SELECT id FROM events WHERE clip_id = $1`, clip))).toHaveLength(1);
+            await t.api("POST", `/viewer/voice/${clip}/played`, { token: card.token });
+            expect((await runPeriodicTasks(t.db.runner as any, { pendingMaxAgeDays: 7 })).deliveredEvents).toBe(1);
+            expect(await state(card.token)).toMatchObject({ voice_pending: 0 });
         });
     });
 
