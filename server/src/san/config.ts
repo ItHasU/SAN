@@ -7,6 +7,12 @@ export interface SanConfig {
     registerRatePerHour: number;
     /** Plafond de viewers `pending` (`SAN_MAX_PENDING`) */
     maxPending: number;
+    /** Enrôlements d'agents sans jeton d'enrôlement (→ pending) par heure et par IP (`SAN_AGENT_REGISTER_RATE_PER_HOUR`) */
+    agentRegisterRatePerHour: number;
+    /** Enrôlements d'agents avec jeton d'enrôlement par heure et par IP (`SAN_AGENT_ENROLL_RATE_PER_HOUR`) */
+    agentEnrollRatePerHour: number;
+    /** Plafond d'agents `pending` (`SAN_MAX_PENDING_AGENTS`) */
+    maxPendingAgents: number;
     /** Valeur du réglage Express « trust proxy » (`SAN_TRUST_PROXY`) */
     trustProxy: number | boolean;
     /** Requêtes par minute et par jeton (`SAN_RATE_PER_MINUTE`) */
@@ -47,6 +53,9 @@ export interface SanConfig {
 export const DEFAULT_SAN_CONFIG: SanConfig = {
     registerRatePerHour: 5,
     maxPending: 20,
+    agentRegisterRatePerHour: 5,
+    agentEnrollRatePerHour: 60,
+    maxPendingAgents: 20,
     trustProxy: 1,
     ratePerMinute: 300,
     authFailuresPerMinute: 30,
@@ -106,6 +115,9 @@ export function readSanConfig(env: NodeJS.ProcessEnv = process.env, overrides: P
         ...d,
         registerRatePerHour: positiveInt("SAN_REGISTER_RATE_PER_HOUR", env["SAN_REGISTER_RATE_PER_HOUR"], d.registerRatePerHour),
         maxPending: positiveInt("SAN_MAX_PENDING", env["SAN_MAX_PENDING"], d.maxPending),
+        agentRegisterRatePerHour: positiveInt("SAN_AGENT_REGISTER_RATE_PER_HOUR", env["SAN_AGENT_REGISTER_RATE_PER_HOUR"], d.agentRegisterRatePerHour),
+        agentEnrollRatePerHour: positiveInt("SAN_AGENT_ENROLL_RATE_PER_HOUR", env["SAN_AGENT_ENROLL_RATE_PER_HOUR"], d.agentEnrollRatePerHour),
+        maxPendingAgents: positiveInt("SAN_MAX_PENDING_AGENTS", env["SAN_MAX_PENDING_AGENTS"], d.maxPendingAgents),
         trustProxy: parseTrustProxy(env["SAN_TRUST_PROXY"], d.trustProxy),
         ratePerMinute: positiveInt("SAN_RATE_PER_MINUTE", env["SAN_RATE_PER_MINUTE"], d.ratePerMinute),
         authFailuresPerMinute: positiveInt("SAN_AUTH_FAILURES_PER_MINUTE", env["SAN_AUTH_FAILURES_PER_MINUTE"], d.authFailuresPerMinute),

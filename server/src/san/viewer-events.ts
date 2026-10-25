@@ -120,7 +120,7 @@ export async function fetchStates(
     const rows = await sql.all<StateRow>(
         `SELECT a.slug, a.name, s.status, s.detail, s.progress, s.ttl_s, s.updated_at
          FROM agents a JOIN agent_state s ON s.agent_slug = a.slug
-         WHERE a.slug = ANY($1::text[]) AND a.revoked_at IS NULL`,
+         WHERE a.slug = ANY($1::text[]) AND a.revoked_at IS NULL AND a.status = 'active'`,
         slugs as never
     );
     const order = new Map(slugs.map((slug, index) => [slug, index]));

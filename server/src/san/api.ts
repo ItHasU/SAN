@@ -11,7 +11,7 @@ import { EventBus } from "./bus";
 import { RateLimiter } from "./rate-limiter";
 import { SseHub } from "./sse";
 import { adminRoutes, AuditFn, webRegisterRoutes } from "./routes/admin";
-import { agentRoutes } from "./routes/agent";
+import { agentRegisterHandler, agentRoutes, AGENT_REGISTER_BODY_LIMIT, PENDING_AGENT_ALLOWED_PATH } from "./routes/agent";
 import { deviceRegisterHandler, deviceRoutes } from "./routes/device";
 import { viewerRoutes } from "./routes/viewer";
 import { voiceRoutes } from "./routes/voice";
@@ -32,11 +32,13 @@ export interface ApiDeps {
     tts: TtsQueue;
     /** Horloge injectable (limiteurs) */
     now?: () => number;
+    /** Journal des événements d'enrôlement d'agents (sans jamais de jeton) ; `console.log` par défaut */
+    log?: (message: string) => void;
 }
 
 export interface ApiRouter {
     router: Router;
-    limiters: { register: RateLimiter, requests: RateLimiter, authFailures: RateLimiter };
+    limiters: { register: RateLimiter, agentRegister: RateLimiter, agentEnroll: RateLimiter, requests: RateLimiter, authFailures: RateLimiter };
     /** Connexions SSE ouvertes */
     hub: SseHub;
 }
@@ -53,6 +55,8 @@ export function createApiRouter(deps: ApiDeps): ApiRouter {
     const now = deps.now;
     const limiters = {
         register: new RateLimiter({ limit: config.registerRatePerHour, windowMs: 3600_000, now }),
+        agentRegister: new RateLimiter({ limit: config.agentRegisterRatePerHour, windowMs: 3600_000, now }),
+        agentEnroll: new RateLimiter({ limit: config.agentEnrollRatePerHour, windowMs: 3600_000, now }),
         requests: new RateLimiter({ limit: config.ratePerMinute, windowMs: 60_000, now }),
         authFailures: new RateLimiter({ limit: config.authFailuresPerMinute, windowMs: 60_000, now })
     };
@@ -83,6 +87,9 @@ export function createApiRouter(deps: ApiDeps): ApiRouter {
         }
     });
     router.post("/device/register", jsonBody, deviceRegisterHandler(db, config, limiters.register));
+    // Enrôlement d'agent (SPEC §4bis) : public, corps JSON réduit, limité par IP
+    router.post("/agent/register", express.json({ limit: AGENT_REGISTER_BODY_LIMIT, type: "application/json" }),
+        agentRegisterHandler(db, config, limiters, deps.log ?? console.log));
 
     // -- Session administrateur Dagda --------------------------------------
     const audit: AuditFn = (req, action, details) => deps.audit((req.user as UserInfo).id, action, details);
@@ -120,6 +127,10 @@ export function createApiRouter(deps: ApiDeps): ApiRouter {
         res.locals["principal"] = principal;
         if (principal.type === "viewer" && principal.status === "pending" && req.path !== PENDING_ALLOWED_PATH) {
             next(forbidden("Ce viewer est en attente d'activation par un administrateur.", "viewer_pending"));
+            return;
+        }
+        if (principal.type === "agent" && principal.status === "pending" && req.path !== PENDING_AGENT_ALLOWED_PATH) {
+            next(forbidden("Cet agent est en attente d'approbation par un administrateur.", "agent_pending"));
             return;
         }
         next();

@@ -34,7 +34,7 @@ export const AGENT_COVERED_BY_RULE_SQL = `
 /** Slugs des agents (non révoqués) auxquels le viewer a accès, triés */
 export async function visibleAgentSlugs(sql: Sql, viewerId: string): Promise<string[]> {
     const rows = await sql.all<{ slug: string }>(
-        `SELECT a.slug FROM agents a WHERE a.revoked_at IS NULL AND ${AGENT_COVERED_BY_RULE_SQL} ORDER BY a.slug`,
+        `SELECT a.slug FROM agents a WHERE a.revoked_at IS NULL AND a.status = 'active' AND ${AGENT_COVERED_BY_RULE_SQL} ORDER BY a.slug`,
         viewerId
     );
     return rows.map((row) => row.slug);
@@ -129,7 +129,7 @@ export async function ruleCoverage(sql: Sql, id: number): Promise<RuleCoverage> 
     const rule = await getRule(sql, id);
     const agents = await sql.all<{ slug: string, name: string }>(
         `SELECT a.slug, a.name FROM agents a, permission_rules r
-         WHERE r.id = $1 AND a.revoked_at IS NULL AND ${RULE_COVERS_AGENT_SQL} ORDER BY a.slug`,
+         WHERE r.id = $1 AND a.revoked_at IS NULL AND a.status = 'active' AND ${RULE_COVERS_AGENT_SQL} ORDER BY a.slug`,
         id
     );
     const groups = rule.scope === "group"
@@ -166,7 +166,7 @@ export async function accessDetail(sql: Sql, viewerId: string, agentSlug: string
     if (viewer == null) {
         throw notFound(`Viewer « ${viewerId} » introuvable.`);
     }
-    const agent = await sql.get<{ revoked_at: Date | null }>(`SELECT revoked_at FROM agents WHERE slug = $1`, agentSlug);
+    const agent = await sql.get<{ revoked_at: Date | null, status: string }>(`SELECT revoked_at, status FROM agents WHERE slug = $1`, agentSlug);
     if (agent == null) {
         throw notFound(`Agent « ${agentSlug} » introuvable.`);
     }
@@ -179,9 +179,11 @@ export async function accessDetail(sql: Sql, viewerId: string, agentSlug: string
          ORDER BY r.id`,
         viewerId, agentSlug
     );
+    // Un agent en attente d'approbation n'est accessible à personne (comme un agent révoqué)
     const agentRevoked = agent.revoked_at != null;
+    const agentPending = agent.status === "pending";
     const rules = rows.map((row) => ({ ...row, via_groups: row.via_groups ?? [] }));
-    const access = !agentRevoked && rules.length > 0;
+    const access = !agentRevoked && !agentPending && rules.length > 0;
     const ruleVoice = access && rules.some((rule) => rule.can_send_voice);
     const audioIn = declaresAudioIn(viewer.capabilities);
     return {
@@ -202,7 +204,7 @@ export async function accessPairs(sql: Sql): Promise<AccessPair[]> {
         `SELECT DISTINCT v.id AS viewer, v.name AS viewer_name, a.slug AS agent
          FROM viewers v
          JOIN permission_rules r ON r.viewer_id = v.id
-         JOIN agents a ON a.revoked_at IS NULL AND ${RULE_COVERS_AGENT_SQL}
+         JOIN agents a ON a.revoked_at IS NULL AND a.status = 'active' AND ${RULE_COVERS_AGENT_SQL}
          WHERE v.status = 'active'
          ORDER BY v.id, a.slug`
     );

@@ -36,7 +36,9 @@ export const apiErrorHandler = (err: unknown, _req: Request, res: Response, _nex
     } else if (isBodyParserError(err, "entity.too.large")) {
         apiError = _req.is("audio/*")
             ? payloadTooLarge("Le corps audio dépasse la limite de 2 Mo.")
-            : payloadTooLarge("Le corps JSON dépasse la limite de 64 Ko.");
+            : _req.path === "/agent/register"
+                ? payloadTooLarge("Le corps JSON dépasse la limite de 4 Ko pour cette route.")
+                : payloadTooLarge("Le corps JSON dépasse la limite de 64 Ko.");
     } else if (isBodyParserError(err, "entity.parse.failed") || isBodyParserError(err, "encoding.unsupported") || isBodyParserError(err, "charset.unsupported")) {
         apiError = badRequest("Corps JSON invalide.", "invalid_json");
     } else {

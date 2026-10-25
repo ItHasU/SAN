@@ -95,7 +95,7 @@ export async function computeConfig(sql: Sql, viewerId: string): Promise<ViewerC
          FROM agents a
          JOIN permission_rules r ON r.viewer_id = $1 AND ${RULE_COVERS_AGENT_SQL}
          LEFT JOIN subscriptions s ON s.viewer_id = $1 AND s.agent_slug = a.slug
-         WHERE a.revoked_at IS NULL
+         WHERE a.revoked_at IS NULL AND a.status = 'active'
          GROUP BY a.slug, a.name, s.viewer_id, s.subscribed, s.position, s.muted`,
         viewerId
     );

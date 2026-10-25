@@ -124,7 +124,7 @@ export class TtsQueue {
     }
 
     protected async _process(job: JobRow): Promise<void> {
-        const agent = await this._db.get(`SELECT 1 FROM agents WHERE slug = $1 AND revoked_at IS NULL`, job.agent_slug);
+        const agent = await this._db.get(`SELECT 1 FROM agents WHERE slug = $1 AND revoked_at IS NULL AND status = 'active'`, job.agent_slug);
         if (agent == null) {
             throw new Error(`agent « ${job.agent_slug} » absent ou révoqué`);
         }

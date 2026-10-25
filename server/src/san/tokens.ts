@@ -1,9 +1,9 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 /** Type de jeton, matérialisé par un préfixe pour faciliter le diagnostic (SPEC §3.2) */
-export type TokenKind = "agt" | "dev" | "web";
+export type TokenKind = "agt" | "dev" | "web" | "enr";
 
-export const TOKEN_KINDS: readonly TokenKind[] = ["agt", "dev", "web"];
+export const TOKEN_KINDS: readonly TokenKind[] = ["agt", "dev", "web", "enr"];
 
 /** 32 octets aléatoires en base64url = 43 caractères */
 const TOKEN_BYTES = 32;
@@ -33,7 +33,7 @@ export function hashesEqual(a: Buffer, b: Buffer): boolean {
 
 /** @returns le type d'un jeton d'après son préfixe, ou null s'il est mal formé */
 export function tokenKind(token: string): TokenKind | null {
-    const match = /^(agt|dev|web)_[A-Za-z0-9_-]{43}$/.exec(token);
+    const match = /^(agt|dev|web|enr)_[A-Za-z0-9_-]{43}$/.exec(token);
     return match == null ? null : match[1] as TokenKind;
 }
 

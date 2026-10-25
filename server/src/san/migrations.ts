@@ -180,5 +180,31 @@ export const SAN_MIGRATIONS: Migration[] = [
                     PRIMARY KEY (viewer_id, event_id)
                 )`);
         }
+    },
+    {
+        // Enrôlement automatique des agents (SPEC §4bis) : statut `pending` d'un agent et
+        // jetons d'enrôlement liés à un groupe (empreinte seule, jamais le secret)
+        id: "0006-agent-enrollment",
+        up: async (tools) => {
+            await tools.run(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'`);
+            await tools.run(`ALTER TABLE agents DROP CONSTRAINT IF EXISTS agents_status_check`);
+            await tools.run(`ALTER TABLE agents ADD CONSTRAINT agents_status_check CHECK (status IN ('pending','active'))`);
+            await tools.run(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS registered_ip text`);
+            await tools.run(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS pending_since timestamptz`);
+            await tools.run(`CREATE INDEX IF NOT EXISTS agents_pending ON agents (pending_since) WHERE status = 'pending'`);
+            await tools.run(`
+                CREATE TABLE IF NOT EXISTS agent_enrollment_tokens (
+                    id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    group_slug   text NOT NULL REFERENCES agent_groups ON DELETE CASCADE,
+                    label        text NOT NULL,
+                    token_hash   bytea NOT NULL UNIQUE,
+                    created_at   timestamptz NOT NULL DEFAULT now(),
+                    expires_at   timestamptz,
+                    revoked_at   timestamptz,
+                    use_count    integer NOT NULL DEFAULT 0,
+                    last_used_at timestamptz
+                )`);
+            await tools.run(`CREATE INDEX IF NOT EXISTS agent_enrollment_tokens_group ON agent_enrollment_tokens (group_slug)`);
+        }
     }
 ];

@@ -6,6 +6,8 @@ export interface AgentPrincipal {
     type: "agent";
     slug: string;
     name: string;
+    /** `pending` : enrôlé sans jeton d'enrôlement, seul `GET /agent/status` est permis (SPEC §4bis) */
+    status: "pending" | "active";
 }
 
 export interface ViewerPrincipal {
@@ -26,19 +28,20 @@ export type Principal = AgentPrincipal | ViewerPrincipal;
  */
 export async function authenticateToken(db: Db, token: string): Promise<Principal | null> {
     const kind = tokenKind(token);
-    if (kind == null) {
+    // Un jeton d'enrôlement (`enr_`) n'authentifie aucun principal : il ne sert qu'à `POST /agent/register`
+    if (kind == null || kind === "enr") {
         return null;
     }
     const hash = hashToken(token);
 
     if (kind === "agt") {
-        const row = await db.get<{ slug: string, name: string, token_hash: Buffer, revoked_at: Date | null }>(
-            `SELECT slug, name, token_hash, revoked_at FROM agents WHERE token_hash = $1`, hash
+        const row = await db.get<{ slug: string, name: string, status: "pending" | "active", token_hash: Buffer, revoked_at: Date | null }>(
+            `SELECT slug, name, status, token_hash, revoked_at FROM agents WHERE token_hash = $1`, hash
         );
         if (row == null || !hashesEqual(row.token_hash, hash) || row.revoked_at != null) {
             return null;
         }
-        return { type: "agent", slug: row.slug, name: row.name };
+        return { type: "agent", slug: row.slug, name: row.name, status: row.status };
     }
 
     const row = await db.get<{ id: string, kind: "device" | "web", name: string | null, status: "pending" | "active" | "revoked", subscription_mode: "auto" | "manual", token_hash: Buffer }>(

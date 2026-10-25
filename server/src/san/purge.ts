@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { SanConfig } from "./config";
 import { Db, Sql } from "./db";
+import { purgePendingAgents } from "./agents";
 import { purgePendingViewers } from "./viewers";
 
 /**
@@ -17,6 +18,7 @@ const CLIP_ID_RE = /^c_[0-9A-Z]{26}$/;
 
 export interface PurgeResult {
     purgedPendingViewers: number;
+    purgedPendingAgents: number;
     expiredEvents: number;
     deliveredEvents: number;
     acknowledgedAgentEvents: number;
@@ -102,13 +104,14 @@ export async function runPeriodicTasks(
     db: Db, config: Pick<SanConfig, "pendingMaxAgeDays"> & Partial<Pick<SanConfig, "dataDir">>, now: Date = new Date()
 ): Promise<PurgeResult> {
     const purgedPendingViewers = await purgePendingViewers(db, config.pendingMaxAgeDays, now);
+    const purgedPendingAgents = await purgePendingAgents(db, config.pendingMaxAgeDays, now);
     const expiredEvents = await purgeExpiredEvents(db, now);
     const deliveredEvents = await purgeDeliveredViewerEvents(db);
     const acknowledgedAgentEvents = await purgeAcknowledgedAgentEvents(db);
     // Après les événements : un clip n'est orphelin qu'une fois son événement supprimé
     const orphanClips = await purgeOrphanClips(db, config.dataDir ?? "./data", now);
     const staleCursors = await purgeStaleCursors(db);
-    return { purgedPendingViewers, expiredEvents, deliveredEvents, acknowledgedAgentEvents, orphanClips, staleCursors };
+    return { purgedPendingViewers, purgedPendingAgents, expiredEvents, deliveredEvents, acknowledgedAgentEvents, orphanClips, staleCursors };
 }
 
 /** Lance les tâches périodiques ; renvoie la fonction d'arrêt */
@@ -118,7 +121,10 @@ export function startPeriodicTasks(db: Db, config: Pick<SanConfig, "pendingMaxAg
             if (result.purgedPendingViewers > 0) {
                 log(`Purge : ${result.purgedPendingViewers} demande(s) d'enrôlement expirée(s) supprimée(s).`);
             }
-            const others = { ...result, purgedPendingViewers: 0 };
+            if (result.purgedPendingAgents > 0) {
+                log(`Purge : ${result.purgedPendingAgents} agent(s) en attente d'approbation expiré(s) supprimé(s).`);
+            }
+            const others = { ...result, purgedPendingViewers: 0, purgedPendingAgents: 0 };
             if (Object.values(others).some((count) => count > 0)) {
                 log(`Purge : événements expirés ${result.expiredEvents}, livrés ${result.deliveredEvents}, acquittés par agent ${result.acknowledgedAgentEvents}, clips orphelins ${result.orphanClips}, curseurs obsolètes ${result.staleCursors}.`);
             }

@@ -163,7 +163,7 @@ export function voiceRoutes(db: Db, config: SanConfig, audio: AudioService, tts:
             ? await db.get<{ expired: boolean, capabilities: any }>(
                 `SELECT (e.expires_at <= now()) AS expired, v.capabilities
                  FROM events e JOIN voice_clips c ON c.id = e.clip_id
-                 JOIN agents a ON a.slug = e.agent_slug AND a.revoked_at IS NULL
+                 JOIN agents a ON a.slug = e.agent_slug AND a.revoked_at IS NULL AND a.status = 'active'
                  JOIN viewers v ON v.id = $1
                  WHERE e.direction = 'to_viewers' AND e.clip_id = $2 AND c.status = 'ready'
                    AND EXISTS (SELECT 1 FROM permission_rules r WHERE r.viewer_id = v.id AND ${RULE_COVERS_AGENT_SQL})
@@ -195,7 +195,7 @@ export function voiceRoutes(db: Db, config: SanConfig, audio: AudioService, tts:
             ? await db.all<{ id: string }>(
                 `INSERT INTO voice_plays (viewer_id, event_id)
                  SELECT $1::text, e.id FROM events e
-                 JOIN agents a ON a.slug = e.agent_slug AND a.revoked_at IS NULL
+                 JOIN agents a ON a.slug = e.agent_slug AND a.revoked_at IS NULL AND a.status = 'active'
                  WHERE e.direction = 'to_viewers' AND e.kind = 'voice' AND e.clip_id = $2
                    AND EXISTS (SELECT 1 FROM permission_rules r WHERE r.viewer_id = $1 AND ${RULE_COVERS_AGENT_SQL})
                  ON CONFLICT DO NOTHING RETURNING event_id AS id`, viewer.id, clipId)

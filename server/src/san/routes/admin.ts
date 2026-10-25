@@ -1,5 +1,6 @@
 import { Request, Response, Router } from "express";
-import { createAgent, deleteAgent, getAgent, listAgents, regenerateAgentToken, updateAgent } from "../agents";
+import { AGENT_ENROLLMENT_STATUSES, approveAgent, createAgent, deleteAgent, getAgent, listAgents, regenerateAgentToken, updateAgent } from "../agents";
+import { createEnrollmentToken, listEnrollmentTokens, revokeEnrollmentToken } from "../enrollment";
 import { Db } from "../db";
 import { withImpact, MutationOutcome } from "../impact";
 import { accessDetail, assertScope, createRule, deleteRule, getRule, listRules, ruleCoverage, updateRule } from "../permissions";
@@ -68,10 +69,33 @@ function replyIfDryRun(res: Response, outcome: MutationOutcome<unknown>): boolea
     return true;
 }
 
+/** `groups` d'une approbation : tableau de slugs de groupes (absent = aucun) */
+function parseGroupSlugs(value: unknown): string[] {
+    if (value === undefined || value === null) {
+        return [];
+    }
+    if (!Array.isArray(value) || value.length > 100) {
+        throw badRequest("groups doit être un tableau de slugs de groupes (100 au plus).");
+    }
+    return value.map((group) => assertSlug(group, "groups[]"));
+}
+
+/** `expires_at` d'un jeton d'enrôlement : date ISO 8601 future, ou absent/null (n'expire pas) */
+function parseExpiry(value: unknown): Date | null {
+    if (value === undefined || value === null) {
+        return null;
+    }
+    const date = typeof value === "string" ? new Date(value) : null;
+    if (date == null || Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) {
+        throw badRequest("expires_at doit être une date ISO 8601 dans le futur.");
+    }
+    return date;
+}
+
 /** Entier positif d'un segment d'URL */
 function idParam(value: unknown): number {
     if (typeof value !== "string" || !/^\d{1,15}$/.test(value)) {
-        throw badRequest("Identifiant de règle invalide.");
+        throw badRequest("Identifiant invalide.");
     }
     return Number(value);
 }
@@ -88,8 +112,9 @@ export function adminRoutes(db: Db, audit: AuditFn): Router {
 
     //#region Agents ---------------------------------------------------------
 
-    router.get("/agents", async (_req, res) => {
-        res.json({ agents: await listAgents(db) });
+    router.get("/agents", async (req, res) => {
+        const status = optionalEnum({ status: req.query["status"] }, "status", AGENT_ENROLLMENT_STATUSES);
+        res.json({ agents: await listAgents(db, status) });
     });
 
     router.post("/agents", async (req, res) => {
@@ -127,15 +152,19 @@ export function adminRoutes(db: Db, audit: AuditFn): Router {
         res.json({ agent: outcome.result, impact: outcome.impact });
     });
 
-    /** Révoque l'agent ; `?purge=true` le supprime définitivement avec son état et ses événements */
+    /**
+     * Révoque l'agent ; `?purge=true` le supprime définitivement avec son état et ses
+     * événements. Un agent `pending` est toujours supprimé : c'est le rejet de sa demande.
+     */
     router.delete("/agents/:slug", async (req, res) => {
         const slug = assertSlug(req.params["slug"]);
-        if (req.query["purge"] === "true") {
+        const pending = (await getAgent(db, slug)).status === "pending";
+        if (req.query["purge"] === "true" || pending) {
             const outcome = await withImpact(db, isDryRun(req), (conn) => deleteAgent(conn, slug));
             if (replyIfDryRun(res, outcome)) {
                 return;
             }
-            await audit(req, "agent.delete", { slug });
+            await audit(req, pending ? "agent.reject" : "agent.delete", { slug });
             res.json({ deleted: true, impact: outcome.impact });
             return;
         }
@@ -144,6 +173,21 @@ export function adminRoutes(db: Db, audit: AuditFn): Router {
             return;
         }
         await audit(req, "agent.revoke", { slug });
+        res.json({ agent: outcome.result, impact: outcome.impact });
+    });
+
+    /**
+     * Approuve un agent `pending` (SPEC §4bis), avec éventuellement des groupes à rejoindre.
+     * Aperçu d'impact : les viewers dont une règle couvre l'agent gagnent l'accès.
+     */
+    router.post("/agents/:slug/approve", async (req, res) => {
+        const slug = assertSlug(req.params["slug"]);
+        const groups = parseGroupSlugs(asObject(req.body ?? {})["groups"]);
+        const outcome = await withImpact(db, isDryRun(req), (conn) => approveAgent(conn, slug, groups));
+        if (replyIfDryRun(res, outcome)) {
+            return;
+        }
+        await audit(req, "agent.approve", { slug, groups });
         res.json({ agent: outcome.result, impact: outcome.impact });
     });
 
@@ -219,6 +263,34 @@ export function adminRoutes(db: Db, audit: AuditFn): Router {
         }
         await audit(req, "group.members.set", { slug, members: outcome.result.members });
         res.json({ group: outcome.result, impact: outcome.impact });
+    });
+
+    //#endregion
+
+    //#region Jetons d'enrôlement (SPEC §4bis) --------------------------------
+
+    router.get("/groups/:slug/enrollment-tokens", async (req, res) => {
+        res.json({ tokens: await listEnrollmentTokens(db, assertSlug(req.params["slug"])) });
+    });
+
+    /** Crée un jeton d'enrôlement ; le secret n'est renvoyé qu'ici (seule son empreinte est stockée) */
+    router.post("/groups/:slug/enrollment-tokens", async (req, res) => {
+        const slug = assertSlug(req.params["slug"]);
+        const body = asObject(req.body);
+        const label = requiredString(body, "label", NAME_MAX);
+        const expiresAt = parseExpiry(body["expires_at"]);
+        const created = await createEnrollmentToken(db, slug, { label, expiresAt });
+        await audit(req, "group.enrollment_token.create", { group: slug, id: created.enrollment_token.id, label, expires_at: expiresAt });
+        res.status(201).json({ enrollment_token: created.enrollment_token, token: created.token });
+    });
+
+    /** Révoque un jeton (le jeton reste listé, marqué révoqué) ; les agents déjà enrôlés ne sont pas touchés */
+    router.delete("/groups/:slug/enrollment-tokens/:id", async (req, res) => {
+        const slug = assertSlug(req.params["slug"]);
+        const id = idParam(req.params["id"]);
+        const token = await revokeEnrollmentToken(db, slug, id);
+        await audit(req, "group.enrollment_token.revoke", { group: slug, id });
+        res.json({ enrollment_token: token });
     });
 
     //#endregion
