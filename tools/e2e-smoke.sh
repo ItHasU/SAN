@@ -15,6 +15,8 @@
 #               l'agent a un slug unique (smoke-XXXXXX) ; à la fin l'agent est purgé
 #               et la carte révoquée. Le serveur lui-même n'est jamais arrêté.
 #               Identifiants : SAN_ADMIN_LOGIN / SAN_ADMIN_PASSWORD (admin/admin).
+#               Chaque lancement consomme 1 enrôlement d'agent sans jeton (limite 5/h/IP)
+#               et 3 avec jeton (60/h/IP), plus 1 enrôlement de carte (5/h/IP) : ne pas boucler.
 #
 # Variables : AGENT_REPO (défaut ../../SAN_agent-claude_code), PIPER_VENV, PIPER_VOICES
 # (sinon recherchés ; à défaut, créés selon tts/README.md), SMOKE_DB (san_smoke).
@@ -51,6 +53,9 @@ cleanup() {
     [ -n "$VID" ] && [ "$REVOKED" = 0 ] && curl -s -o /dev/null -b "$JAR" -X POST "$URL/api/v1/admin/viewers/$VID/revoke" || true
     curl -s -o /dev/null -b "$JAR" -X DELETE "$URL/api/v1/admin/agents/$SLUG?purge=true" || true
     curl -s -o /dev/null -b "$JAR" -X DELETE "$URL/api/v1/admin/agents/$SLUG-b?purge=true" || true
+    curl -s -o /dev/null -b "$JAR" -X DELETE "$URL/api/v1/admin/agents/$SLUG-e?purge=true" || true
+    curl -s -o /dev/null -b "$JAR" -X DELETE "$URL/api/v1/admin/agents/$SLUG-p?purge=true" || true
+    curl -s -o /dev/null -b "$JAR" -X DELETE "$URL/api/v1/admin/groups/$SLUG-grp" || true
   fi
   for p in "${PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done
   wait 2>/dev/null || true
@@ -219,6 +224,63 @@ check "PUT config → abonné" true "$(printf '%s' "$put" | jq -r ".config.agent
 admin PATCH "/admin/viewers/$VID" '{"subscription_mode":"auto"}' >/dev/null
 sim sync >/dev/null
 check "retour en mode auto" auto "$(sim config | jq -r .config.mode)"
+
+# --- 5bis. Enrôlement automatique des agents (SPEC §4bis) --------------------
+# Limites par défaut (par IP) : 5 enrôlements/h sans jeton, 60/h avec jeton. Ce bloc en consomme
+# 1 sans jeton et 3 avec : ne pas rejouer le script en boucle contre une stack partagée.
+step "Enrôlement des agents : avec jeton d'enrôlement"
+register_agent() { # json → "corps\ncode HTTP" (route publique, sans jeton d'agent)
+  curl -sS -w '\n%{http_code}' -X POST -H 'Content-Type: application/json' --data "$1" "$URL/api/v1/agent/register"
+}
+agent_call() { # jeton METHOD chemin [json] → code HTTP
+  curl -s -o /dev/null -w '%{http_code}' -X "$2" -H "Authorization: Bearer $1" -H 'Content-Type: application/json' ${4:+--data "$4"} "$URL/api/v1$3"
+}
+GRP="$SLUG-grp"; SLUG_E="$SLUG-e"; SLUG_P="$SLUG-p"
+admin POST /admin/groups '{"slug":"'"$GRP"'","name":"Smoke groupe"}' >/dev/null
+admin POST "/admin/viewers/$VID/rules" '{"scope":"group","pattern":"'"$GRP"'","can_send_voice":false}' >/dev/null
+et="$(admin POST "/admin/groups/$GRP/enrollment-tokens" '{"label":"smoke"}')"
+ENR="$(printf '%s' "$et" | jq -r .token)"
+case "$ENR" in enr_*) ok "jeton d'enrôlement créé, enr_… (affiché une seule fois)" ;; *) die "jeton d'enrôlement absent : $et" ;; esac
+check "la liste des jetons ne renvoie jamais le secret" false "$(admin GET "/admin/groups/$GRP/enrollment-tokens" | jq --arg t "$ENR" 'tostring | contains($t)')"
+out="$(register_agent '{"slug":"'"$SLUG_E"'","name":"Smoke enrôlé","enrollment_token":"enr_'"$(printf 'x%.0s' $(seq 43))"'"}')"
+check "jeton d'enrôlement invalide → 401 (pas de repli en pending)" 401 "${out##*$'\n'}"
+out="$(register_agent '{"slug":"'"$SLUG_E"'","name":"Smoke enrôlé","enrollment_token":"'"$ENR"'"}')"
+check "register avec jeton → 201" 201 "${out##*$'\n'}"
+reg="${out%$'\n'*}"
+check "agent actif dans le groupe du jeton" "active $GRP" "$(printf '%s' "$reg" | jq -r '"\(.status) \(.group)"')"
+AGT_E="$(printf '%s' "$reg" | jq -r .token)"
+case "$AGT_E" in agt_*) ok "jeton d'agent agt_… renvoyé" ;; *) die "jeton d'agent absent : $reg" ;; esac
+check "le jeton d'agent fonctionne tout de suite (POST /agent/state)" 200 "$(agent_call "$AGT_E" POST /agent/state '{"status":"working","detail":"enrôlé"}')"
+check "GET /agent/status → active" active "$(curl -s -H "Authorization: Bearer $AGT_E" "$URL/api/v1/agent/status" | jq -r .status)"
+out="$(register_agent '{"slug":"'"$SLUG_E"'","enrollment_token":"'"$ENR"'"}')"
+check "slug déjà pris → 409 (aucun écrasement)" 409 "${out##*$'\n'}"
+cfg="$(sim config)"
+truthy "la carte voit l'agent enrôlé (règle de groupe)" ".config.agents[] | select(.agent==\"$SLUG_E\")" "$cfg"
+tok_id="$(admin GET "/admin/groups/$GRP/enrollment-tokens" | jq -r '.tokens[0].id')"
+check "usage du jeton comptabilisé" 1 "$(admin GET "/admin/groups/$GRP/enrollment-tokens" | jq '.tokens[0].use_count')"
+admin DELETE "/admin/groups/$GRP/enrollment-tokens/$tok_id" >/dev/null
+out="$(register_agent '{"slug":"'"$SLUG_E"'-2","enrollment_token":"'"$ENR"'"}')"
+check "jeton révoqué → 401" 401 "${out##*$'\n'}"
+
+step "Enrôlement des agents : sans jeton (pending), puis approbation"
+admin POST "/admin/viewers/$VID/rules" '{"scope":"agent","pattern":"'"$SLUG_P"'","can_send_voice":false}' >/dev/null
+out="$(register_agent '{"slug":"'"$SLUG_P"'","name":"Smoke en attente"}')"
+check "register sans jeton → 201" 201 "${out##*$'\n'}"
+reg="${out%$'\n'*}"
+check "agent pending, sans groupe" "pending null" "$(printf '%s' "$reg" | jq -r '"\(.status) \(.group)"')"
+AGT_P="$(printf '%s' "$reg" | jq -r .token)"
+check "GET /agent/status → pending" pending "$(curl -s -H "Authorization: Bearer $AGT_P" "$URL/api/v1/agent/status" | jq -r .status)"
+check "agent pending : POST /agent/state → 403" 403 "$(agent_call "$AGT_P" POST /agent/state '{"status":"working"}')"
+check "agent pending : POST /agent/nudge → 403" 403 "$(agent_call "$AGT_P" POST /agent/nudge '{"text":"x"}')"
+truthy "agent pending listé parmi les demandes en attente" ".agents[] | select(.slug==\"$SLUG_P\" and .status==\"pending\")" "$(admin GET "/admin/agents?status=pending")"
+truthy "agent pending invisible pour la carte malgré la règle" "[.config.agents[] | select(.agent==\"$SLUG_P\")] | length == 0" "$(sim config)"
+prev="$(admin POST "/admin/agents/$SLUG_P/approve?dry_run=1" '{"groups":["'"$GRP"'"]}')"
+truthy "aperçu d'approbation : la carte gagne l'accès" ".dry_run==true and (.gained[] | select(.viewer==\"$VID\" and .agent==\"$SLUG_P\"))" "$prev"
+ap="$(admin POST "/admin/agents/$SLUG_P/approve" '{"groups":["'"$GRP"'"]}')"
+check "approbation : agent actif dans le groupe" "active $GRP" "$(printf '%s' "$ap" | jq -r '"\(.agent.status) \(.agent.groups[0])"')"
+check "le même jeton vaut maintenant pour toutes les routes" 200 "$(agent_call "$AGT_P" POST /agent/state '{"status":"idle","detail":"approuvé"}')"
+check "GET /agent/status → active" active "$(curl -s -H "Authorization: Bearer $AGT_P" "$URL/api/v1/agent/status" | jq -r .status)"
+truthy "la carte voit l'agent approuvé" ".config.agents[] | select(.agent==\"$SLUG_P\")" "$(sim config)"
 
 # --- 6. Agent → carte --------------------------------------------------------
 step "Agent réel (bin/san) → carte"
