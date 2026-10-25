@@ -12,7 +12,7 @@ structurante doit y être ajoutée.
 | `SAN` | Serveur (API + app web admin/tableau de bord), image Docker, compose, image TTS |
 | `SAN_viewer-M5StickS3` | Firmware PlatformIO de la carte |
 | `SAN_agent-claude_code` | Configuration Claude Code (hooks + skill + script `bin/san`) pour qu'une session Claude Code soit un agent SAN, et faux agent de démo (`tools/fake-agent.sh`) |
-| `dagda` | Framework. Modifications éventuelles sur la branche `feat/san-support` |
+| `dagda` | Framework. Branche `main` (le routeur public y est fusionné) |
 
 `SAN` dépend de Dagda via `file:../dagda/packages/*` (même disposition que
 `MQTTToolbox2`) : `dagda/` et `SAN/` sont des répertoires frères.
@@ -63,7 +63,7 @@ structurante doit y être ajoutée.
 ## 3. Organisation du serveur
 
 - L'API `/api/v1/*` (agents, cartes, viewers) est un `express.Router` monté sur
-  `this._publicRouter` (ajout Dagda, branche `feat/san-support` : routeur placé avant
+  `this._publicRouter` (ajout Dagda, `main` : routeur placé avant
   les parseurs de corps globaux et la porte de session), avec ses
   propres middlewares : authentification Bearer, limites de taille (JSON 64 Ko,
   audio 2 Mo, `express.raw`), limite de débit en mémoire. Elle n'utilise pas la
