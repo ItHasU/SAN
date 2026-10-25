@@ -55,7 +55,7 @@ describe("rendu sans injection (SPEC §14)", () => {
 
     it("pastille de statut : libellé et périmé", () => {
         const badge = statusBadge("error", true);
-        expect(badge.textContent).toContain("Erreur");
+        expect(badge.textContent).toContain("Problème");
         expect(badge.textContent).toContain("périmé");
         expect(statusBadge(EVIL, false).querySelector("img")).toBeNull();
     });
