@@ -57,6 +57,15 @@ describe.runIf(inject("databaseAvailable"))("migrations SAN", () => {
         await expect(run(`INSERT INTO viewers (id, kind, status, token_hash, hardware_id, pairing_code, subscription_mode) VALUES ('c', 'device', 'pending', 'c1', 'hw2', 'K7-42', 'manual')`)).rejects.toThrow();
         // un viewer actif peut partager le hardware_id d'un pending
         await run(`INSERT INTO viewers (id, kind, status, token_hash, hardware_id, subscription_mode) VALUES ('d', 'device', 'active', 'd1', 'hw', 'manual')`);
+        // 0006 : statut d'agent limité à pending|active, valeur par défaut active ; un jeton d'enrôlement suit son groupe
+        await expect(run(`INSERT INTO agents (slug, name, token_hash, status) VALUES ('s1', 'S', 'h1', 'revoked')`)).rejects.toThrow();
+        await run(`INSERT INTO agents (slug, name, token_hash) VALUES ('s2', 'S', 'h2')`);
+        expect((await db.runner.get<{ status: string }>(`SELECT status FROM agents WHERE slug = 's2'`))!.status).toBe("active");
+        await run(`INSERT INTO agent_groups (slug, name) VALUES ('g', 'G')`);
+        await run(`INSERT INTO agent_enrollment_tokens (group_slug, label, token_hash) VALUES ('g', 'l', 'th')`);
+        await expect(run(`INSERT INTO agent_enrollment_tokens (group_slug, label, token_hash) VALUES ('g', 'l', 'th')`)).rejects.toThrow();
+        await run(`DELETE FROM agent_groups WHERE slug = 'g'`);
+        expect((await db.runner.get<{ n: number }>(`SELECT count(*)::int AS n FROM agent_enrollment_tokens`))!.n).toBe(0);
         await expect(run(`INSERT INTO agent_state (agent_slug, status) VALUES ('nope', 'idle')`)).rejects.toThrow();
     });
 });

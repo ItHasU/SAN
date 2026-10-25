@@ -4,7 +4,7 @@ import { generateToken, hashesEqual, hashToken, parseBearer, shortHash, tokenKin
 describe("tokens", () => {
 
     it("génère un jeton préfixé de 32 octets base64url", () => {
-        for (const kind of ["agt", "dev", "web"] as const) {
+        for (const kind of ["agt", "dev", "web", "enr"] as const) {
             const { token, hash } = generateToken(kind);
             expect(token).toMatch(new RegExp(`^${kind}_[A-Za-z0-9_-]{43}$`));
             expect(tokenKind(token)).toBe(kind);
