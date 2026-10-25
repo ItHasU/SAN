@@ -1,4 +1,4 @@
-import { AccessDetail, AgentRecord, ConfigView, DryRunResult, GroupRecord, Impact, RuleCoverage, RuleRecord, SubscriptionMode, SubscriptionPatch, SyncResponse, ViewerCapabilities, ViewerConfig, ViewerRecord } from "@san/shared/src/api/types";
+import { AccessDetail, AgentEnrollmentStatus, AgentRecord, ConfigView, DryRunResult, EnrollmentTokenRecord, GroupRecord, Impact, RuleCoverage, RuleRecord, SubscriptionMode, SubscriptionPatch, SyncResponse, ViewerCapabilities, ViewerConfig, ViewerRecord } from "@san/shared/src/api/types";
 
 export const API_BASE = "/api/v1";
 
@@ -298,7 +298,12 @@ export class AdminApi {
     }
 
     //#region Lectures
-    public async agents(): Promise<AgentRecord[]> { return (await this.call<{ agents: AgentRecord[] }>("GET", "/agents")).agents; }
+    public async agents(status?: AgentEnrollmentStatus): Promise<AgentRecord[]> {
+        return (await this.call<{ agents: AgentRecord[] }>("GET", `/agents${status == null ? "" : `?status=${status}`}`)).agents;
+    }
+    public async enrollmentTokens(group: string): Promise<EnrollmentTokenRecord[]> {
+        return (await this.call<{ tokens: EnrollmentTokenRecord[] }>("GET", `/groups/${encodeURIComponent(group)}/enrollment-tokens`)).tokens;
+    }
     public async groups(): Promise<GroupRecord[]> { return (await this.call<{ groups: GroupRecord[] }>("GET", "/groups")).groups; }
     public async viewers(status?: string): Promise<ViewerRecord[]> {
         return (await this.call<{ viewers: ViewerRecord[] }>("GET", `/viewers${status == null ? "" : `?status=${encodeURIComponent(status)}`}`)).viewers;
@@ -319,6 +324,21 @@ export class AdminApi {
     }
     public revokeAgent(slug: string): Mutation<{ agent: AgentRecord, impact: Impact }> {
         return this.mutation("DELETE", `/agents/${encodeURIComponent(slug)}`);
+    }
+    /** Approuve un agent en attente ; l'aperçu liste les viewers qui gagnent l'accès */
+    public approveAgent(slug: string, groups: string[]): Mutation<{ agent: AgentRecord, impact: Impact }> {
+        return this.mutation("POST", `/agents/${encodeURIComponent(slug)}/approve`, { groups });
+    }
+    /** Rejette un agent en attente : sa suppression (même route que la révocation, qui supprime un agent pending) */
+    public rejectAgent(slug: string): Mutation<{ deleted: true, impact: Impact }> {
+        return this.mutation("DELETE", `/agents/${encodeURIComponent(slug)}`);
+    }
+    /** Crée un jeton d'enrôlement ; le secret `token` n'est renvoyé qu'ici */
+    public createEnrollmentToken(group: string, input: { label: string, expires_at?: string }): Promise<{ enrollment_token: EnrollmentTokenRecord, token: string }> {
+        return this.call("POST", `/groups/${encodeURIComponent(group)}/enrollment-tokens`, input);
+    }
+    public revokeEnrollmentToken(group: string, id: number): Promise<{ enrollment_token: EnrollmentTokenRecord }> {
+        return this.call("DELETE", `/groups/${encodeURIComponent(group)}/enrollment-tokens/${id}`);
     }
     public createGroup(input: { slug: string, name: string, description?: string }): Mutation<{ group: GroupRecord, impact: Impact }> {
         return this.mutation("POST", "/groups", input);

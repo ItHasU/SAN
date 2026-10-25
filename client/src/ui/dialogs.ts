@@ -179,3 +179,31 @@ export function showAgentToken(agentName: string, token: string): void {
         copyBlock("Exemple curl", curlExample(token), true));
     openDialog({ title: `Jeton de ${agentName}`, body, actions: [{ label: "J'ai copié le jeton", className: "btn-primary" }] });
 }
+
+/** Exemple `curl` d'enrôlement automatique d'un agent avec un jeton d'enrôlement (SPEC §4bis) */
+export function enrollmentCurlExample(enrollmentToken: string, origin: string = window.location.origin): string {
+    return [
+        `API=${origin}${API_BASE}`,
+        `ENROLLMENT_TOKEN=${enrollmentToken}`,
+        ``,
+        `# Réponse 201 : {"slug","status":"active","token":"agt_…","group"} — le jeton d'agent n'est renvoyé qu'une fois`,
+        `curl -sX POST $API/agent/register -H 'Content-Type: application/json' \\`,
+        `  -d '{"slug":"mon-agent","name":"Mon agent","enrollment_token":"'"$ENROLLMENT_TOKEN"'"}'`
+    ].join("\n");
+}
+
+/**
+ * Affiche un jeton d'enrôlement UNE SEULE FOIS. `onDone` s'exécute à la fermeture
+ * (ex. rouvrir la liste des jetons du groupe).
+ */
+export function showEnrollmentToken(groupName: string, token: string, onDone?: () => void): void {
+    const body = h("div", { class: "san-dialog-body", data: { secret: "enrollment-token" } },
+        h("p", { class: "san-warning" }, icon("ph-warning"), " Ce jeton ne sera plus jamais affiché. Quiconque le détient peut créer des agents actifs dans ce groupe : conservez-le en lieu sûr, et révoquez-le en cas de fuite."),
+        copyBlock("Jeton d'enrôlement", token, false),
+        copyBlock("Exemple curl", enrollmentCurlExample(token), true));
+    openDialog({
+        title: `Jeton d'enrôlement de ${groupName}`,
+        body,
+        actions: [{ label: "J'ai copié le jeton", className: "btn-primary", onClick: () => { onDone?.(); return onDone == null ? undefined : false; } }]
+    });
+}

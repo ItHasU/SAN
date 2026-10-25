@@ -114,4 +114,30 @@ describe("AdminApi", () => {
         await expect(api.agents()).rejects.toMatchObject({ status: 401 });
         expect(onUnauthorized).toHaveBeenCalled();
     });
+
+    it("agents en attente : filtre, approbation avec groupes, rejet", async () => {
+        const calls: Array<{ url: string, method?: string, body?: unknown }> = [];
+        const api = new AdminApi({ fetch: async (url, init) => { calls.push({ url, method: init?.method, body: init?.body == null ? undefined : JSON.parse(String(init.body)) }); return json(200, { agents: [], dry_run: true, gained: [], lost: [] }); } });
+        await api.agents("pending");
+        await api.approveAgent("travail/ci", ["g1"]).preview();
+        await api.rejectAgent("a").preview();
+        expect(calls).toEqual([
+            { url: "/api/v1/admin/agents?status=pending", method: "GET", body: undefined },
+            { url: "/api/v1/admin/agents/travail%2Fci/approve?dry_run=1", method: "POST", body: { groups: ["g1"] } },
+            { url: "/api/v1/admin/agents/a?dry_run=1", method: "DELETE", body: undefined }
+        ]);
+    });
+
+    it("jetons d'enrôlement : liste, création, révocation", async () => {
+        const calls: Array<{ url: string, method?: string, body?: unknown }> = [];
+        const api = new AdminApi({ fetch: async (url, init) => { calls.push({ url, method: init?.method, body: init?.body == null ? undefined : JSON.parse(String(init.body)) }); return json(200, { tokens: [], token: "enr_x", enrollment_token: {} }); } });
+        await api.enrollmentTokens("ci");
+        await expect(api.createEnrollmentToken("ci", { label: "L", expires_at: "2030-01-01T00:00:00.000Z" })).resolves.toMatchObject({ token: "enr_x" });
+        await api.revokeEnrollmentToken("ci", 4);
+        expect(calls).toEqual([
+            { url: "/api/v1/admin/groups/ci/enrollment-tokens", method: "GET", body: undefined },
+            { url: "/api/v1/admin/groups/ci/enrollment-tokens", method: "POST", body: { label: "L", expires_at: "2030-01-01T00:00:00.000Z" } },
+            { url: "/api/v1/admin/groups/ci/enrollment-tokens/4", method: "DELETE", body: undefined }
+        ]);
+    });
 });

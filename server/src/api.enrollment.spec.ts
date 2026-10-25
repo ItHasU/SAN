@@ -391,6 +391,13 @@ describe.runIf(inject("databaseAvailable"))("enrôlement des agents", () => {
             expect((await t.api("GET", "/agent/status", { token })).json.status).toBe("pending");
         });
 
+        it("slug hiérarchique : approbation et rejet par URL encodée", async () => {
+            await pendingAgent("travail/ci/a");
+            await pendingAgent("travail/ci/b");
+            expect((await t.api("POST", "/admin/agents/travail%2Fci%2Fa/approve", { cookie, body: {} })).json.agent).toMatchObject({ slug: "travail/ci/a", status: "active" });
+            expect((await t.api("DELETE", "/admin/agents/travail%2Fci%2Fb", { cookie })).status).toBe(200);
+        });
+
         it("rejet : la suppression supprime l'agent, son jeton reçoit 401 et son slug redevient libre", async () => {
             const { token } = await pendingAgent("rejete");
             const preview = await t.api("DELETE", "/admin/agents/rejete?dry_run=1", { cookie });

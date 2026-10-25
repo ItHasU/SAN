@@ -28,7 +28,8 @@ export class AgentsPage extends SanPage {
     }
 
     protected async _render(): Promise<void> {
-        const agents = await adminApi.agents();
+        // Les agents en attente d'approbation sont traités dans « Demandes en attente »
+        const agents = (await adminApi.agents()).filter((agent) => agent.status === "active");
         const now = Date.now();
         if (agents.length === 0) {
             this._list.replaceChildren(emptyState("Aucun agent. Créez-en un pour obtenir son jeton."));

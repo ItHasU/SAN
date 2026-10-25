@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AgentCard } from "../pages/dashboard/agent-card";
 import { EventItem } from "../pages/dashboard/event-item";
 import { progressBar, statusBadge } from "./common";
-import { groupByViewer, impactBody, curlExample } from "./dialogs";
+import { groupByViewer, impactBody, curlExample, enrollmentCurlExample } from "./dialogs";
 
 const EVIL = "<img src=x onerror=\"window.__pwned=1\">";
 const NOW = Date.now();
@@ -83,5 +83,15 @@ describe("rendu sans injection (SPEC §14)", () => {
         expect(curl).toContain("TOKEN=agt_xyz");
         expect(curl).toContain("API=https://san.example/api/v1");
         expect(curl).toContain("/agent/state");
+    });
+});
+
+describe("enrôlement des agents", () => {
+    it("l'exemple curl d'enrôlement vise POST /agent/register avec le jeton d'enrôlement", () => {
+        const curl = enrollmentCurlExample("enr_xyz", "https://san.example");
+        expect(curl).toContain("API=https://san.example/api/v1");
+        expect(curl).toContain("ENROLLMENT_TOKEN=enr_xyz");
+        expect(curl).toContain("$API/agent/register");
+        expect(curl).toContain("enrollment_token");
     });
 });

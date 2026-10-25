@@ -10,6 +10,8 @@ export type NudgeType = "start" | "notification" | "question" | "done" | "error"
 export type Priority = "normal" | "high";
 export type SubscriptionMode = "auto" | "manual";
 export type ViewerStatus = "pending" | "active" | "revoked";
+/** Statut d'enrôlement d'un agent : `pending` jusqu'à l'approbation d'un administrateur (SPEC §4bis) */
+export type AgentEnrollmentStatus = "pending" | "active";
 
 //#region Viewer ---------------------------------------------------------------
 
@@ -125,11 +127,50 @@ export interface AgentRecord {
     slug: string;
     name: string;
     description: string | null;
+    status: AgentEnrollmentStatus;
+    registered_ip: string | null;
+    pending_since: string | null;
     created_at: string;
     revoked_at: string | null;
     revoked: boolean;
     groups: string[];
     state: AgentState | null;
+}
+
+export type EnrollmentTokenState = "active" | "expired" | "revoked";
+
+/** Jeton d'enrôlement d'un groupe (jamais le secret : seule son empreinte est stockée) */
+export interface EnrollmentTokenRecord {
+    id: number;
+    group: string;
+    label: string;
+    created_at: string;
+    expires_at: string | null;
+    revoked_at: string | null;
+    use_count: number;
+    last_used_at: string | null;
+    state: EnrollmentTokenState;
+}
+
+/** Corps de `POST /agent/register` (public, SPEC §4bis) */
+export interface AgentRegisterRequest {
+    slug: string;
+    name?: string;
+    enrollment_token?: string;
+}
+
+/** Réponse 201 de `POST /agent/register` ; le jeton d'agent n'est renvoyé qu'une fois */
+export interface AgentRegisterResponse {
+    slug: string;
+    status: AgentEnrollmentStatus;
+    token: string;
+    group?: string;
+}
+
+/** Réponse de `GET /agent/status` */
+export interface AgentStatusResponse {
+    slug: string;
+    status: AgentEnrollmentStatus;
 }
 
 export interface GroupRecord {
