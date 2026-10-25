@@ -199,6 +199,14 @@ CREATE TABLE events (
 CREATE INDEX events_agent_id ON events (agent_slug, id);
 CREATE INDEX events_expires  ON events (expires_at);
 
+-- vocaux lus par un viewer (compteur de vocaux en attente, §10.4)
+CREATE TABLE voice_plays (
+  viewer_id text   NOT NULL REFERENCES viewers ON DELETE CASCADE,
+  event_id  bigint NOT NULL REFERENCES events  ON DELETE CASCADE,
+  played_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (viewer_id, event_id)
+);
+
 CREATE TABLE cursors (
   principal_type      text,
   principal_id        text,
@@ -278,7 +286,7 @@ Les capacités étant auto-déclarées, elles ne peuvent que **restreindre** ce 
 
 ### 8.1 Modes d'abonnement
 
-Chaque viewer déclare son `subscription_mode` à l'enregistrement : `auto` par défaut, aussi bien pour une carte que pour l'application web (la carte n'a pas de filtrage d'agents : elle affiche tout le monde). `manual` reste possible, uniquement à l'initiative de l'administrateur, qui peut modifier le mode d'un viewer à tout moment.
+Chaque viewer déclare son `subscription_mode` à l'enregistrement : `auto` par défaut, aussi bien pour une carte que pour l'application web (la carte n'a pas de filtrage d'agents : elle affiche tout le monde). `manual` reste possible (hérité du firmware précédent, sans usage par la carte actuelle), uniquement à l'initiative de l'administrateur, qui peut modifier le mode d'un viewer à tout moment.
 
 Ce qui s'affiche sur un viewer, ce sont toujours des **agents**, jamais des groupes. Les groupes ne servent qu'à l'administration des permissions.
 
@@ -346,7 +354,7 @@ L'identité de l'agent est déduite de son jeton : aucune route ne prend son slu
 | Méthode | Route | Description |
 |---|---|---|
 | `POST` | `/agent/state` | Met à jour l'état. Corps : `{status, detail?, progress?, ttl_s?}` |
-| `POST` | `/agent/nudge` | Émet un nudge. Corps : `{text?, priority?: "normal"\|"high", type?: "start"\|"notification"\|"question"\|"done"\|"error", ttl_s?}`. `type` (défaut `notification`) qualifie le nudge ; valeur inconnue : 400. Il est renvoyé sous la clé `type` dans les événements `nudge` de la synchronisation et du flux SSE |
+| `POST` | `/agent/nudge` | Émet un nudge. Corps : `{text?, priority?: "normal"\|"high", type?: "start"\|"notification"\|"question"\|"done"\|"error", ttl_s?}`. `type` (défaut `notification`) qualifie le nudge ; valeur inconnue : 400. Il est renvoyé sous la clé `type` dans les événements `nudge` de la synchronisation et du flux SSE. Le type fixe aussi l'état de l'agent (§10.5) |
 | `POST` | `/agent/say` | Message vocal par TTS. Corps : `{text, priority?, ttl_s?}`. Réponse `202` avec l'id du clip |
 | `POST` | `/agent/voice` | Message vocal à partir d'un fichier (`audio/wav`, `audio/mpeg`, `audio/ogg`) |
 | `GET` | `/agent/inbox?ack=<id>&wait=<s>` | Messages reçus des viewers, en long-poll (`wait` ≤ 60). `ack` acquitte avant lecture |
@@ -397,6 +405,7 @@ Réponse de `/agent/inbox` :
 | `GET` | `/viewer/config` | Configuration effective, avec agents visibles et marqueurs `new` |
 | `PUT` | `/viewer/config` | Corps `{base_hash, subscriptions:[{agent, subscribed, position, muted}]}` ; `409` si conflit |
 | `GET` | `/viewer/voice/:clip` | Clip dans le format adapté aux capacités du viewer |
+| `POST` | `/viewer/voice/:clip/played` | Marque le message vocal lu par ce viewer (idempotent, sans corps) : il ne compte plus dans `voice_pending`. Réponse `{ok:true}` ; `404` si clip inconnu ou invisible |
 | `POST` | `/viewer/voice?to=<agent>` | Envoi d'un message vocal à un agent (corps audio au format déclaré) |
 | `GET` | `/viewer/events` | Flux SSE pour le web ; reprise par `Last-Event-ID` |
 
@@ -420,7 +429,8 @@ Le serveur applique d'abord l'acquittement, met à jour `last_seen_at` et `batte
   "states": [
     { "agent": "build-1", "name": "Build", "status": "working",
       "detail": "Compilation firmware", "progress": 40, "stale": false,
-      "updated_at": "2026-10-23T15:03:10Z" }
+      "updated_at": "2026-10-23T15:03:10Z",
+      "voice_pending": 1, "voice_pending_clips": ["c_01J…"] }
   ],
   "events": [
     { "id": 808, "agent": "build-1", "kind": "nudge", "priority": "high", "type": "error",
@@ -435,9 +445,24 @@ Le serveur applique d'abord l'acquittement, met à jour `last_seen_at` et `batte
 }
 ```
 
+Chaque état porte `voice_pending` (nombre de messages vocaux de l'agent non lus par ce viewer, ni expirés ni marqués lus par `POST /viewer/voice/:clip/played`) et `voice_pending_clips` (leurs identifiants, du plus ancien au plus récent, 20 au plus) ; ce compteur est indépendant de l'acquittement des événements et sert à la pastille de la carte. Un viewer qui ignore ces champs reste compatible. Un message vocal acquitté mais non lu reste téléchargeable jusqu'à son expiration.
+
 `config` n'est renseigné que si `config_hash` diffère. Si `capabilities_required` vaut `true`, le viewer envoie ses capacités puis refait une synchronisation. `has_more` indique qu'une page supplémentaire est disponible (50 événements par page). `next_sync_s` est une indication du serveur pour le prochain réveil.
 
-### 10.5 Administration
+### 10.5 Statut d'un agent et icône de la carte
+
+Le champ `status` des états (§10.4) correspond à l'icône affichée par la carte :
+
+| `status` | Icône |
+|---|---|
+| `idle`, `done` | prêt, terminé (coche verte) |
+| `error` | problème (point d'exclamation) |
+| `waiting` | question (point d'interrogation) |
+| `working` | en cours de réflexion (animation) |
+
+Règle : un nudge `question`, `error`, `done` ou `start` fixe l'état de l'agent à `waiting`, `error`, `done` ou `working` (avec `detail` = texte du nudge) jusqu'au prochain état ou nudge ; `notification` ne le modifie pas. Un `POST /agent/state` explicite reste possible et remplace l'état. Les réglages propres à la carte (volumes, luminosité, veille, lecture automatique des vocaux, mode AP) sont locaux au firmware : le serveur ne les stocke pas.
+
+### 10.6 Administration
 
 Routes protégées par la session administrateur :
 
@@ -486,7 +511,7 @@ Pour minimiser la consommation, la reconnexion est accélérée par une IP stati
 
 L'écran est éteint pendant le sommeil. Sur réveil timer, il ne s'allume que s'il y a un nudge, un message vocal ou un changement d'état notable sur un agent non muet. Un appui sur le bouton allume l'écran et affiche les états des agents suivis pendant quelques secondes. Le rétroéclairage s'éteint après un délai configurable.
 
-Les interactions par boutons comprennent la navigation entre agents, la réécoute du dernier message, l'enregistrement d'un message vocal vers l'agent sélectionné (bouton maintenu ; le Wi-Fi s'associe pendant l'enregistrement) et un menu de configuration qui liste les agents visibles, signale les nouveaux et permet de cocher ou décocher les abonnements.
+Les interactions par boutons comprennent la navigation entre agents, la lecture du vocal de l'agent sélectionné, l'enregistrement d'un message vocal vers lui (bouton maintenu ; le Wi-Fi s'associe pendant l'enregistrement) et un menu de réglages locaux : volume des notifications, volume des vocaux, luminosité, temps de veille, lecture automatique des vocaux (défaut oui), mode AP, réinitialisation. Il n'y a plus de sélection des agents visibles ni de file de notifications : l'écran montre tous les agents (mode `auto`), chacun avec une icône de son dernier statut (§10.5) et une pastille du nombre de vocaux en attente (`voice_pending`, §10.4). La sélection passe automatiquement sur l'agent dont le statut ou les vocaux changent, par priorité vocal > question > problème > prêt ; le passage à « réflexion » ne change pas la sélection, ni un enregistrement en cours. Le type d'un nudge (`type`) détermine le son.
 
 ### 12.4 Stockage
 

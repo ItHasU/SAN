@@ -45,6 +45,20 @@ structurante doit y être ajoutée.
   `type` dans les événements `nudge` de la synchro et du SSE (jamais sur une voix).
   Optionnel et additif : un client qui l'ignore reste compatible. Le client web
   affiche une icône et un libellé par type ; le son et la vibration ne changent pas.
+- **État fixé par un nudge** (spec §10.1) : `question` → `waiting`, `error` → `error`, `done` → `done`,
+  `start` → `working`, `notification` → inchangé. L'état est remplacé (`detail` = texte du nudge,
+  `progress` et `ttl_s` remis à NULL) et notifié comme un `POST /agent/state`, après l'insertion
+  de l'événement. Une carte déduit l'icône d'un agent du seul `states[].status` (spec §10.4).
+- **Vocaux en attente** (spec §10.4) : table `voice_plays(viewer_id, event_id)` (migration
+  `0005-voice-plays`). `states[]` d'une synchro ou d'un SSE porte `voice_pending` et
+  `voice_pending_clips` : événements `voice` `to_viewers` prêts, non expirés, non marqués lus par ce
+  viewer, postérieurs au début de suivi. Indépendant du curseur d'acquittement. Conséquence sur la
+  purge : un événement vocal acquitté n'est supprimé que lorsque toutes les cartes actives l'ont
+  marqué lu (sinon à l'expiration, 7 jours par défaut), pour que la carte puisse encore télécharger
+  le clip après un redémarrage. Marquage : `POST /viewer/voice/:clip/played`.
+- **Cartes et mode `manual`** : les cartes n'ont plus de sélection d'agents visibles ; le mode
+  `manual` et `PUT /viewer/config` ne sont conservés que pour l'administrateur et le client web
+  (aucune suppression : sans risque pour les cartes déjà déployées).
 
 ## 3. Organisation du serveur
 
@@ -56,7 +70,7 @@ structurante doit y être ajoutée.
   session Dagda, sauf :
   - `POST /api/v1/web/register` (session admin Dagda requise) → crée un viewer `web`
     actif et renvoie `{viewer_id, token}`. Corps : `{capabilities, label?}`.
-  - `/api/v1/admin/*` (spec §10.5) : session Dagda requise ; `401` sinon.
+  - `/api/v1/admin/*` (spec §10.6) : session Dagda requise ; `401` sinon.
 - Logique métier dans des modules testables indépendamment d'Express
   (`server/src/san/*.ts` : tokens, glob, permissions, config, sync, events, audio, tts…).
 - Accès SQL : `this._db` (runner PG Dagda), requêtes **toujours paramétrées**.
