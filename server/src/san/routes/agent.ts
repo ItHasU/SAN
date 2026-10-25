@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { EventBus } from "../bus";
 import { MAX_INBOX_WAIT_S, pollInbox } from "../inbox";
-import { AGENT_STATUSES, setAgentState } from "../agents";
+import { AGENT_STATUSES, AgentStatus, setAgentState } from "../agents";
 import { Db } from "../db";
 import { insertEvent, NUDGE_TTL_S } from "../events";
 import { badRequest } from "../errors";
@@ -11,6 +11,13 @@ import { asObject, optionalEnum, optionalInt, optionalString, queryInt } from ".
 export const MAX_DETAIL_CHARS = 500;
 export const MAX_NUDGE_TEXT_CHARS = 500;
 export const NUDGE_TYPES = ["start", "notification", "question", "done", "error"] as const;
+/**
+ * État fixé par un nudge (SPEC §10.1) : `question` → waiting (« ? »), `error` → error (« ! »),
+ * `done` → done (coche), `start` → working (réflexion) ; `notification` ne change pas l'état.
+ */
+export const NUDGE_STATE: Partial<Record<typeof NUDGE_TYPES[number], AgentStatus>> = {
+    start: "working", question: "waiting", error: "error", done: "done"
+};
 export const PRIORITIES = ["normal", "high"] as const;
 
 /** Routes réservées aux agents (SPEC §10.1) : l'identité vient du jeton */
@@ -43,6 +50,10 @@ export function agentRoutes(db: Db, bus: EventBus): Router {
         const event = await insertEvent(db, {
             direction: "to_viewers", agentSlug: agent.slug, kind: "nudge", text, priority, nudgeType, ttlS: effectiveTtl
         });
+        const status = NUDGE_STATE[nudgeType];
+        if (status !== undefined) {
+            await setAgentState(db, agent.slug, { status, detail: text });
+        }
         res.status(201).json({ id: event.id, expires_at: event.expires_at });
     });
 

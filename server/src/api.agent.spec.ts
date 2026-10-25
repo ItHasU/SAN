@@ -92,6 +92,22 @@ describe.runIf(inject("databaseAvailable"))("API /agent", () => {
             expect((await post({ type: 3 })).status).toBe(400);
         });
 
+        it("fixe l'état de l'agent selon le type : question → waiting, error → error, done → done, start → working, notification → inchangé", async () => {
+            const post = (body: unknown) => t.api("POST", "/agent/nudge", { token, body });
+            const state = async () => (await t.db.runner.get<any>(`SELECT status, detail, progress FROM agent_state`));
+            await t.api("POST", "/agent/state", { token, body: { status: "idle" } });
+            await post({ type: "notification", text: "FYI" });
+            expect(await state()).toMatchObject({ status: "idle", detail: null });
+            for (const [type, status] of [["start", "working"], ["question", "waiting"], ["error", "error"], ["done", "done"]]) {
+                await post({ type, text: `t-${type}` });
+                expect(await state()).toMatchObject({ status, detail: `t-${type}`, progress: null });
+            }
+            await post({ type: "question" });
+            expect(await state()).toMatchObject({ status: "waiting", detail: null });
+            await post({});
+            expect(await state()).toMatchObject({ status: "waiting" });
+        });
+
         it("accepte un ttl_s plus court et plafonne un ttl_s plus long à 6 h", async () => {
             const short = await t.api("POST", "/agent/nudge", { token, body: { ttl_s: 120 } });
             expect(await lifetimeS(short.json.id)).toBe(120);
