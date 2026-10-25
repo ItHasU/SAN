@@ -91,7 +91,7 @@ describe.runIf(inject("databaseAvailable"))("santé, curseur initial et début d
     });
 
     it("manual : s'abonner à un agent plus tard ne livre que les événements postérieurs à l'abonnement", async () => {
-        const device = await activeDevice(t, cookie);
+        const device = await activeDevice(t, cookie, "Carte test", "manual");
         await addRule(t, cookie, device.viewer_id, "*");
         await nudge("avant abonnement");
         await new Promise((resolve) => setTimeout(resolve, 20));

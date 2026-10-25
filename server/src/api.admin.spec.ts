@@ -197,7 +197,7 @@ describe.runIf(inject("databaseAvailable"))("API /admin", () => {
             expect(detail.status).toBe(200);
             expect(detail.json.viewer).toMatchObject({
                 id: device.viewer_id, kind: "device", status: "pending", hardware_id: "hw-detail", model: "M5StickS3",
-                pairing_code: device.pairing_code, subscription_mode: "manual", name: null
+                pairing_code: device.pairing_code, subscription_mode: "auto", name: null
             });
             expect(detail.json.viewer.registered_ip).toBeTruthy();
             expect(detail.json.viewer.pending_since).toBeTruthy();

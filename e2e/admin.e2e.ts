@@ -54,7 +54,7 @@ test.describe("Administration", () => {
         await goTo(page, "Viewers");
         const viewerCard = page.locator("[data-list=viewers] article").filter({ hasText: name });
         await expect(viewerCard).toContainText("san-m5sticks3 0.1.0");
-        await expect(viewerCard).toContainText("Mode manuel");
+        await expect(viewerCard).toContainText("Mode auto");
         await viewerCard.getByRole("button", { name: "Détail et permissions" }).click();
         await expect(page.locator("[data-list=capabilities]")).toContainText("Pas de micro");
 

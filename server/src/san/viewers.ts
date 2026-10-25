@@ -99,7 +99,7 @@ export async function registerDevice(db: Sql, input: RegisterDeviceInput, config
         await conn.run(
             `INSERT INTO viewers (id, kind, status, token_hash, hardware_id, model, registered_ip, pairing_code,
                                   subscription_mode, capabilities, pending_since)
-             VALUES ($1, 'device', 'pending', $2, $3, $4, $5, $6, 'manual', $7::jsonb, now())`,
+             VALUES ($1, 'device', 'pending', $2, $3, $4, $5, $6, 'auto', $7::jsonb, now())`,
             id, hash, input.hardwareId, input.model, input.ip, code, JSON.stringify(input.capabilities)
         );
         return { viewer_id: id, token, pairing_code: code };

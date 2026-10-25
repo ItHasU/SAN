@@ -20,7 +20,7 @@ describe.runIf(inject("databaseAvailable"))("API /device", () => {
     });
 
     describe("POST /device/register", () => {
-        it("crée un viewer pending manual avec jeton et code d'appairage", async () => {
+        it("crée un viewer pending en mode auto avec jeton et code d'appairage", async () => {
             const response = await t.api("POST", "/device/register", { body: { hardware_id: "aa:bb", model: "M5StickS3", capabilities: CAPS } });
             expect(response.status).toBe(201);
             expect(response.json.status).toBe("pending");
@@ -28,7 +28,7 @@ describe.runIf(inject("databaseAvailable"))("API /device", () => {
             expect(response.json.pairing_code).toMatch(PAIRING_CODE_RE);
 
             const row = await t.db.runner.get<any>(`SELECT * FROM viewers WHERE id = $1`, response.json.viewer_id);
-            expect(row).toMatchObject({ kind: "device", status: "pending", subscription_mode: "manual", hardware_id: "aa:bb", model: "M5StickS3" });
+            expect(row).toMatchObject({ kind: "device", status: "pending", subscription_mode: "auto", hardware_id: "aa:bb", model: "M5StickS3" });
             expect(row.registered_ip).toBeTruthy();
             expect(row.capabilities.protocol_version).toBe(1);
             // seul le hash est stocké

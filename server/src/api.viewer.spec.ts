@@ -26,9 +26,9 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
     /** Curseur du (seul) viewer ; initialisé à l'activation (SPEC §9.2) */
     const viewerCursor = async () => (await t.db.runner.get<{ c: string }>(`SELECT last_acked_event_id::text AS c FROM cursors WHERE principal_type = 'viewer'`))?.c;
     const sync = (token: string, query = "") => t.api("GET", `/viewer/sync${query}`, { token });
-    /** Carte active, règle `*`, capacités envoyées, abonnée à tout */
+    /** Carte active en mode manual (forcé par PATCH admin), règle `*`, capacités envoyées, abonnée à tout */
     async function readyCard(pattern = "*") {
-        const device = await activeDevice(t, cookie);
+        const device = await activeDevice(t, cookie, "Carte test", "manual");
         await addRule(t, cookie, device.viewer_id, pattern);
         const caps = await t.api("PUT", "/viewer/capabilities", { token: device.token, raw: JSON.stringify(CAPS) });
         const config = await t.api("GET", "/viewer/config", { token: device.token });
@@ -46,6 +46,7 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
             // pending : seules les routes d'enrôlement
             expect((await sync(device.token)).status).toBe(403);
             await t.api("POST", `/admin/viewers/${device.viewer_id}/activate`, { cookie, body: { name: "Bureau" } });
+            await t.api("PATCH", `/admin/viewers/${device.viewer_id}`, { cookie, body: { subscription_mode: "manual" } });
             await addRule(t, cookie, device.viewer_id, "*");
 
             // première synchronisation : ack=0 (carte réinitialisée), ni config_hash ni caps_hash
@@ -213,7 +214,7 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
         it("GET en manual crée les lignes subscribed=false, avec les marqueurs new de cette consultation", async () => {
             await createAgent(t, cookie, "a1");
             await createAgent(t, cookie, "a2");
-            const device = await activeDevice(t, cookie);
+            const device = await activeDevice(t, cookie, "Carte test", "manual");
             await addRule(t, cookie, device.viewer_id, "*");
             const first = await t.api("GET", "/viewer/config", { token: device.token });
             expect(first.json.config.agents.map((a: any) => [a.agent, a.new, a.subscribed])).toEqual([["a1", true, false], ["a2", true, false]]);
@@ -232,13 +233,30 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
             await createAgent(t, cookie, "a2");
             const device = await activeDevice(t, cookie);
             await addRule(t, cookie, device.viewer_id, "*");
-            await t.api("PATCH", `/admin/viewers/${device.viewer_id}`, { cookie, body: { subscription_mode: "auto" } });
             const config = await t.api("GET", "/viewer/config", { token: device.token });
             expect(config.json.config.mode).toBe("auto");
             expect(config.json.config.agents.every((a: any) => a.subscribed && !a.new)).toBe(true);
             expect(await t.db.runner.all(`SELECT * FROM subscriptions`)).toHaveLength(0);
             const put = await t.api("PUT", "/viewer/config", { token: device.token, body: { base_hash: config.json.config_hash, subscriptions: [{ agent: "a2", subscribed: false, position: 0, muted: true }] } });
             expect(put.json.config.agents.map((a: any) => [a.agent, a.subscribed, a.position, a.muted])).toEqual([["a2", true, 0, true], ["a1", true, null, false]]);
+        });
+
+        it("une carte nouvellement activée est en auto : elle voit tous les agents visibles sans abonnement, et un nouvel agent apparaît sans action de sa part", async () => {
+            await createAgent(t, cookie, "a1");
+            await createAgent(t, cookie, "a2");
+            await createAgent(t, cookie, "cache");
+            const device = await activeDevice(t, cookie);
+            await addRule(t, cookie, device.viewer_id, "a?");
+            const first = await t.api("GET", "/viewer/config", { token: device.token });
+            expect(first.json.config.mode).toBe("auto");
+            expect(first.json.config.agents.map((a: any) => [a.agent, a.subscribed, a.new])).toEqual([["a1", true, false], ["a2", true, false]]);
+            expect(await t.db.runner.all(`SELECT * FROM subscriptions`)).toHaveLength(0);
+            // un agent visible créé ensuite est suivi à la synchronisation suivante, sans PUT de la carte
+            await createAgent(t, cookie, "a3");
+            const next = await sync(device.token, `?config_hash=${first.json.config_hash}`);
+            expect(next.json.config.agents.map((a: any) => [a.agent, a.subscribed])).toEqual([["a1", true], ["a2", true], ["a3", true]]);
+            expect(next.json.config_hash).not.toBe(first.json.config_hash);
+            expect(await t.db.runner.all(`SELECT * FROM subscriptions`)).toHaveLength(0);
         });
 
         it("le passage manual -> auto conserve les lignes ; les changements admin changent le hash vu par sync", async () => {
@@ -402,7 +420,7 @@ describe.runIf(inject("databaseAvailable"))("API /viewer", () => {
         it("GET/PUT /admin/viewers/:id/subscriptions", async () => {
             await createAgent(t, cookie, "a1");
             await createAgent(t, cookie, "cache");
-            const device = await activeDevice(t, cookie);
+            const device = await activeDevice(t, cookie, "Carte test", "manual");
             await addRule(t, cookie, device.viewer_id, "a1");
             const get = await t.api("GET", `/admin/viewers/${device.viewer_id}/subscriptions`, { cookie });
             expect(get.json.config.agents).toEqual([expect.objectContaining({ agent: "a1", subscribed: false, new: true })]);

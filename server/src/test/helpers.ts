@@ -26,12 +26,21 @@ export async function registerDevice(t: TestApp, hardwareId = `hw-${++counter}`,
     return response.json as { token: string, pairing_code: string, viewer_id: string, status: string };
 }
 
-/** Enrôle une carte puis l'active (session admin) */
-export async function activeDevice(t: TestApp, cookie: string, name = "Carte test") {
+/**
+ * Enrôle une carte puis l'active (session admin). Une carte est enrôlée en `auto` ;
+ * `mode: "manual"` la passe en manuel via PATCH admin, avant toute règle.
+ */
+export async function activeDevice(t: TestApp, cookie: string, name = "Carte test", mode: "auto" | "manual" = "auto") {
     const device = await registerDevice(t);
     const response = await t.api("POST", `/admin/viewers/${device.viewer_id}/activate`, { cookie, body: { name } });
     if (response.status !== 200) {
         throw new Error(`activate failed: ${response.status}`);
+    }
+    if (mode === "manual") {
+        const patch = await t.api("PATCH", `/admin/viewers/${device.viewer_id}`, { cookie, body: { subscription_mode: "manual" } });
+        if (patch.status !== 200) {
+            throw new Error(`patch mode failed: ${patch.status}`);
+        }
     }
     return device;
 }

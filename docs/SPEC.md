@@ -278,7 +278,7 @@ Les capacités étant auto-déclarées, elles ne peuvent que **restreindre** ce 
 
 ### 8.1 Modes d'abonnement
 
-Chaque viewer déclare son `subscription_mode` à l'enregistrement : `manual` pour une carte, `auto` pour l'application web. L'administrateur peut le modifier.
+Chaque viewer déclare son `subscription_mode` à l'enregistrement : `auto` par défaut, aussi bien pour une carte que pour l'application web (la carte n'a pas de filtrage d'agents : elle affiche tout le monde). `manual` reste possible, uniquement à l'initiative de l'administrateur, qui peut modifier le mode d'un viewer à tout moment.
 
 Ce qui s'affiche sur un viewer, ce sont toujours des **agents**, jamais des groupes. Les groupes ne servent qu'à l'administration des permissions.
 

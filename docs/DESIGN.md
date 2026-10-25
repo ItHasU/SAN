@@ -34,6 +34,10 @@ structurante doit y être ajoutée.
 - **Temps réel web** : le flux `/viewer/events` est au format SSE mais le client web
   le lit avec `fetch()` + `ReadableStream` (pas `EventSource`), pour pouvoir envoyer
   `Authorization: Bearer web_…`. Pas de jeton dans l'URL.
+- **Mode d'abonnement par défaut d'une carte** (spec §8.1) : une carte `device` qui s'auto-enrôle
+  est créée en `auto` (et non `manual`), car la carte M5 Stick ne permet plus de filtrer les
+  agents : elle affiche tous les agents visibles. L'administrateur peut toujours passer un viewer
+  en `manual` (PATCH). Pas de migration de données : les cartes déjà enregistrées gardent leur mode.
 - **Type de nudge** (ajout à la spec §10.1) : `POST /agent/nudge` accepte `type` ∈
   `start|notification|question|done|error` (défaut `notification`, 400 sinon). Il est
   stocké dans `events.nudge_type` (migration `0004-nudge-type`, NULL pour les voix,
