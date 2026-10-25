@@ -37,14 +37,14 @@ Côté firmware : PlatformIO avec le framework Arduino-ESP32 et M5Unified pour l
 
 | Principal | Rôle | Création |
 |---|---|---|
-| **Agent** | Publie état, nudges, voix ; reçoit les messages vocaux des viewers | Par un administrateur dans l'interface web |
+| **Agent** | Publie état, nudges, voix ; reçoit les messages vocaux des viewers | Par un administrateur dans l'interface web, ou par enrôlement automatique via l'API (§4bis) |
 | **Viewer** `device` | Carte M5 : affiche, joue les notifications, enregistre la voix | Auto-enrôlement puis activation par un administrateur (§4) |
 | **Viewer** `web` | Instance de l'application web dans un navigateur | À la connexion d'un utilisateur authentifié (§4.4) |
 | **Administrateur** | Gère agents, groupes, viewers, permissions | Utilisateur local (login / mot de passe) |
 
 ### 3.2 Jetons
 
-Les agents et les viewers s'authentifient par un jeton opaque envoyé dans `Authorization: Bearer <token>`. Le jeton est une valeur aléatoire de 32 octets encodée en base64url, préfixée par son type pour faciliter le diagnostic (`agt_…`, `dev_…`, `web_…`). Le serveur ne stocke que son empreinte SHA-256. Un jeton n'est affiché qu'une seule fois, à sa création ; il peut être régénéré, ce qui invalide l'ancien.
+Les agents et les viewers s'authentifient par un jeton opaque envoyé dans `Authorization: Bearer <token>`. Le jeton est une valeur aléatoire de 32 octets encodée en base64url, préfixée par son type pour faciliter le diagnostic (`agt_…`, `dev_…`, `web_…`, et `enr_…` pour les jetons d'enrôlement d'agents, §4bis). Le serveur ne stocke que son empreinte SHA-256. Un jeton n'est affiché qu'une seule fois, à sa création ; il peut être régénéré, ce qui invalide l'ancien.
 
 Les administrateurs s'authentifient par login et mot de passe (hash argon2id). La session est portée par un cookie `HttpOnly`, `Secure`, `SameSite=Strict`.
 
@@ -53,7 +53,7 @@ Les administrateurs s'authentifient par login et mot de passe (hash argon2id). L
 | Code | Signification |
 |---|---|
 | `401` | Jeton inconnu, expiré ou révoqué. Une carte qui le reçoit efface son jeton et se réenregistre. |
-| `403` | Jeton valide mais action non permise (viewer `pending`, permission absente). |
+| `403` | Jeton valide mais action non permise (viewer ou agent `pending`, permission absente). |
 | `409` | Conflit de configuration (§8.3). |
 | `413` | Charge utile trop volumineuse. |
 | `429` | Limite de débit atteinte. |
@@ -91,6 +91,36 @@ La route d'enregistrement est publique : elle est limitée en débit (par défau
 
 Un utilisateur se connecte à l'application web ; le navigateur s'enregistre alors comme viewer `web`, directement `active` puisque l'utilisateur est authentifié. Chaque navigateur a ainsi sa propre file et son propre curseur. Les viewers web apparaissent dans la liste des viewers et peuvent être révoqués comme les cartes.
 
+## 4bis. Enrôlement des agents
+
+Un agent peut s'enregistrer lui-même par l'API, sans passage préalable par l'interface d'administration. Deux cas, selon qu'il présente ou non un **jeton d'enrôlement** lié à un groupe d'agents.
+
+### 4bis.1 Cycle de vie
+
+```
+                     register avec jeton d'enrôlement valide
+ (aucun) ─────────────────────────────────────────────────────────► active
+    │                                                                  ▲
+    │ register sans jeton          approbation admin                   │
+    └────────────────────► pending ────────────────────────────────────┘
+                              │ rejet admin, ou 7 jours sans approbation
+                              ▼
+                          (supprimé)
+```
+
+- **Avec un jeton d'enrôlement valide** (existant, non révoqué, non expiré) : l'agent est créé `active`, ajouté au groupe du jeton, et son jeton d'agent est utilisable immédiatement.
+- **Sans jeton** : l'agent est créé `pending`. Son jeton ne donne accès qu'à `GET /agent/status` ; toute autre route répond `403` (code `agent_pending`), comme pour un viewer `pending` (§4.2). Il n'est visible d'aucun viewer, n'entre dans aucun calcul de permission ni de configuration, et ne peut publier ni état, ni nudge, ni message vocal. Un administrateur l'**approuve** (avec, au choix, des groupes à rejoindre) ou le **rejette** (suppression) ; une fois approuvé, le même jeton vaut pour toutes les routes.
+- **Jeton fourni mais invalide, révoqué ou expiré** : `401 invalid_enrollment_token`. Il n'y a volontairement aucun repli silencieux vers `pending`, pour ne pas masquer une erreur de configuration.
+- **Slug déjà pris** (agent actif ou en attente) : `409 slug_taken`. Un enrôlement ne ré-enregistre jamais un agent existant et ne divulgue jamais son jeton.
+
+### 4bis.2 Jetons d'enrôlement
+
+Un jeton d'enrôlement est un secret aléatoire (`enr_` + 32 octets en base64url) lié à **un** groupe. Il porte un libellé, une date de création, une date d'expiration facultative, un compteur d'usage (`use_count`, `last_used_at`) et peut être révoqué. Un groupe peut avoir plusieurs jetons. Le serveur ne stocke que son empreinte SHA-256 (comparée en temps constant) ; le secret n'est affiché qu'une seule fois, à la création. Un jeton d'enrôlement n'authentifie aucune route : il ne sert qu'à `POST /agent/register`. Le révoquer n'affecte pas les agents déjà enrôlés. Supprimer le groupe supprime ses jetons.
+
+### 4bis.3 Règles
+
+Le slug suit les règles du §5. La route est publique, donc protégée : limite de débit **par IP** (sans jeton : 5 demandes par heure par défaut ; avec jeton : 60 par heure, compteur distinct), plafond d'agents `pending` (20 par défaut, `429 pending_limit`, sans effet sur les enrôlements avec jeton), corps JSON limité à 4 Ko, et les jetons invalides comptent comme des échecs d'authentification (blocage temporaire de l'IP, §14). Un agent `pending` non approuvé au bout de **7 jours** est supprimé par la tâche périodique (§9.3), avec son jeton. Un agent enrôlé avec jeton se propage aux viewers comme une création par un administrateur : les viewers dont une règle le couvre le voient (configuration et flux SSE). Les enrôlements, les approbations et la gestion des jetons sont journalisés, sans jamais écrire de secret.
+
 ## 5. Modèle de données
 
 Les identifiants d'agents et de groupes sont des **slugs** (`[a-z0-9-]+`, éventuellement hiérarchiques avec `/`), immuables une fois créés. Ce sont eux que ciblent les motifs de permission (§6). Le nom d'affichage, lui, est libre et modifiable.
@@ -102,7 +132,11 @@ CREATE TABLE agents (
   description text,
   token_hash  bytea NOT NULL UNIQUE,
   created_at  timestamptz NOT NULL DEFAULT now(),
-  revoked_at  timestamptz
+  revoked_at  timestamptz,
+  -- enrôlement automatique (§4bis)
+  status        text NOT NULL DEFAULT 'active' CHECK (status IN ('pending','active')),
+  registered_ip text,
+  pending_since timestamptz
 );
 
 CREATE TABLE agent_groups (
@@ -114,6 +148,19 @@ CREATE TABLE agent_group_members (
   group_slug text REFERENCES agent_groups ON DELETE CASCADE,
   agent_slug text REFERENCES agents       ON DELETE CASCADE,
   PRIMARY KEY (group_slug, agent_slug)
+);
+
+-- jetons d'enrôlement d'agents (§4bis) : l'empreinte seule est stockée
+CREATE TABLE agent_enrollment_tokens (
+  id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  group_slug   text NOT NULL REFERENCES agent_groups ON DELETE CASCADE,
+  label        text NOT NULL,
+  token_hash   bytea NOT NULL UNIQUE,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  expires_at   timestamptz,
+  revoked_at   timestamptz,
+  use_count    integer NOT NULL DEFAULT 0,
+  last_used_at timestamptz
 );
 
 CREATE TABLE viewers (
@@ -245,7 +292,7 @@ Le seul droit supplémentaire est `can_send_voice`, porté par la règle : il au
 
 ### 6.2 Calcul de l'accès effectif
 
-Les règles sont uniquement permissives (pas de règle d'interdiction). Un viewer a accès à un agent dès qu'au moins une règle le couvre, directement ou via l'un quelconque de ses groupes. Il peut envoyer de la voix à cet agent si au moins une de ces règles porte `can_send_voice` et si ses capacités le permettent (§7.3). Les agents révoqués sont exclus.
+Les règles sont uniquement permissives (pas de règle d'interdiction). Un viewer a accès à un agent dès qu'au moins une règle le couvre, directement ou via l'un quelconque de ses groupes. Il peut envoyer de la voix à cet agent si au moins une de ces règles porte `can_send_voice` et si ses capacités le permettent (§7.3). Les agents révoqués et les agents `pending` (§4bis) sont exclus.
 
 Une règle à wildcard couvre aussi les agents et groupes créés ultérieurement. L'interface d'administration doit donc afficher, pour chaque règle, les agents qu'elle couvre actuellement, et, à la création d'un agent ou d'un groupe ou à la modification d'une appartenance, les viewers qui y gagnent ou y perdent un accès. Pour un couple (viewer, agent), elle doit pouvoir indiquer par quelles règles l'accès est accordé.
 
@@ -359,6 +406,8 @@ L'identité de l'agent est déduite de son jeton : aucune route ne prend son slu
 | `POST` | `/agent/voice` | Message vocal à partir d'un fichier (`audio/wav`, `audio/mpeg`, `audio/ogg`) |
 | `GET` | `/agent/inbox?ack=<id>&wait=<s>` | Messages reçus des viewers, en long-poll (`wait` ≤ 60). `ack` acquitte avant lecture |
 | `GET` | `/agent/voice/:clip?format=wav\|mp3\|ogg` | Télécharge un message vocal reçu |
+| `GET` | `/agent/status` | Statut d'enrôlement : `{slug, status:"pending"\|"active"}`. Seule route permise à un agent `pending` ; un agent révoqué reçoit `401` (§4bis) |
+| `POST` | `/agent/register` | **Publique** (aucun jeton d'agent). Voir §10.1bis |
 
 Exemples :
 
@@ -386,6 +435,28 @@ Réponse de `/agent/inbox` :
   ],
   "has_more": false
 }
+```
+
+### 10.1bis Enrôlement des agents
+
+`POST /agent/register`, sans en-tête `Authorization`. Corps JSON (4 Ko au plus) : `{slug, name?, enrollment_token?}`. `name` vaut le slug par défaut (100 caractères au plus).
+
+| Cas | Réponse |
+|---|---|
+| Jeton d'enrôlement valide | `201 {slug, status:"active", token:"agt_…", group:"<slug du groupe>"}` |
+| Aucun jeton (absent ou `null`) | `201 {slug, status:"pending", token:"agt_…"}` |
+| Jeton fourni mais inconnu, mal formé, révoqué ou expiré | `401 {error:"invalid_enrollment_token"}` |
+| Slug invalide, corps invalide | `400` (`invalid_slug`, `invalid_request`, `invalid_json`) |
+| Slug déjà pris | `409 {error:"slug_taken"}` |
+| Plafond d'agents `pending` atteint (sans jeton) | `429 {error:"pending_limit"}` |
+| Limite de débit par IP | `429 {error:"rate_limited", retry_after_s}` + en-tête `Retry-After` |
+| Corps de plus de 4 Ko | `413` |
+
+Le jeton d'agent n'est renvoyé qu'une fois. Un agent `pending` consulte `GET /agent/status` à intervalles raisonnables (comme une carte, §4.2) jusqu'à `active` ; il reçoit `401` s'il a été rejeté ou purgé.
+
+```sh
+curl -sX POST $API/agent/register -H 'Content-Type: application/json' \
+  -d '{"slug":"travail/ci/runner-1","name":"Runner 1","enrollment_token":"enr_xxx"}'
 ```
 
 ### 10.2 Enrôlement des cartes
@@ -468,8 +539,9 @@ Routes protégées par la session administrateur :
 
 | Ressource | Routes |
 |---|---|
-| Agents | `GET/POST /admin/agents`, `GET/PATCH/DELETE /admin/agents/:slug`, `POST /admin/agents/:slug/token` (régénération) |
+| Agents | `GET /admin/agents?status=pending\|active`, `POST /admin/agents`, `GET/PATCH/DELETE /admin/agents/:slug`, `POST /admin/agents/:slug/token` (régénération), `POST /admin/agents/:slug/approve` (corps facultatif `{groups?: [slug…]}`, aperçu d'impact `?dry_run=1`). `DELETE` d'un agent `pending` le supprime : c'est le rejet |
 | Groupes | `GET/POST /admin/groups`, `GET/PATCH/DELETE /admin/groups/:slug`, `PUT /admin/groups/:slug/members` |
+| Jetons d'enrôlement | `GET /admin/groups/:slug/enrollment-tokens`, `POST …` (corps `{label, expires_at?}` ; réponse `201 {enrollment_token, token}`, secret affiché une seule fois), `DELETE …/:id` (révocation) |
 | Viewers | `GET /admin/viewers?status=`, `GET/PATCH /admin/viewers/:id`, `POST /admin/viewers/:id/activate`, `POST /admin/viewers/:id/revoke` |
 | Permissions | `GET/POST /admin/viewers/:id/rules`, `PATCH/DELETE /admin/rules/:id`, `GET /admin/rules/:id/coverage` |
 | Abonnements | `GET/PUT /admin/viewers/:id/subscriptions` |
@@ -485,8 +557,9 @@ L'application web a deux facettes, servies par le même code et le même serveur
 
 - *Demandes en attente* : code d'appairage, modèle, identifiant matériel, IP, ancienneté ; actions activer (avec saisie du nom) et refuser.
 - *Viewers* : nom, type, statut, mode d'abonnement, capacités, version de firmware, dernière connexion, prochain réveil prévu, batterie ; édition des règles de permission avec aperçu de couverture et des abonnements, ordonnables par glisser-déposer.
+- *Demandes en attente* (agents) : agents enrôlés sans jeton d'enrôlement, avec IP et ancienneté ; actions approuver (choix de groupes, avec les viewers qui gagnent l'accès) et rejeter.
 - *Agents* : création (le jeton n'est affiché qu'une fois), régénération de jeton, révocation, groupes d'appartenance, état courant, viewers qui y ont accès.
-- *Groupes* : création, membres, viewers concernés par les règles qui ciblent le groupe.
+- *Groupes* : création, membres, jetons d'enrôlement (création avec libellé et expiration, secret affiché une seule fois, usage, révocation), viewers concernés par les règles qui ciblent le groupe.
 
 Toute action qui modifie la couverture des permissions affiche, avant validation, les viewers qui gagnent ou perdent l'accès.
 
@@ -561,7 +634,7 @@ Seul `api` est exposé, derrière le reverse proxy existant avec un certificat L
 
 ## 14. Sécurité
 
-Le serveur est exposé sur internet ; les mesures suivantes sont requises. Jetons stockés sous forme d'empreinte uniquement et comparés en temps constant. Limites de débit par jeton et par IP, renforcées sur `/device/register` et sur le login administrateur. Tailles maximales des corps (JSON : 64 Ko ; audio : 2 Mo) et durée maximale des clips vérifiée après décodage. Validation stricte des slugs et des motifs glob par liste blanche (caractères autorisés, longueur, §6.1). Toutes les requêtes SQL sont paramétrées, sans exception : aucune valeur venant d'un client (slug, motif, texte, identifiant, paramètre de requête) n'est concaténée dans du SQL, et les noms de tri ou de colonnes éventuellement choisis par l'interface passent par une table de correspondance fixe côté serveur. Le rôle PostgreSQL utilisé par `api` n'a que les droits nécessaires sur le schéma de l'application, sans droit de superutilisateur ni de création de rôles. Aucun contenu fourni par un agent n'est interprété côté serveur ; l'application web échappe tous les textes affichés. CORS désactivé, l'application web étant servie par la même origine. Journalisation des actions d'administration (activation, révocation, modification des règles).
+Le serveur est exposé sur internet ; les mesures suivantes sont requises. Jetons stockés sous forme d'empreinte uniquement et comparés en temps constant. Limites de débit par jeton et par IP, renforcées sur `/device/register` et sur le login administrateur. Tailles maximales des corps (JSON : 64 Ko ; audio : 2 Mo) et durée maximale des clips vérifiée après décodage. Validation stricte des slugs et des motifs glob par liste blanche (caractères autorisés, longueur, §6.1). Toutes les requêtes SQL sont paramétrées, sans exception : aucune valeur venant d'un client (slug, motif, texte, identifiant, paramètre de requête) n'est concaténée dans du SQL, et les noms de tri ou de colonnes éventuellement choisis par l'interface passent par une table de correspondance fixe côté serveur. Le rôle PostgreSQL utilisé par `api` n'a que les droits nécessaires sur le schéma de l'application, sans droit de superutilisateur ni de création de rôles. Aucun contenu fourni par un agent n'est interprété côté serveur ; l'application web échappe tous les textes affichés. CORS désactivé, l'application web étant servie par la même origine. Journalisation des actions d'administration (activation, révocation, modification des règles, création et révocation de jetons d'enrôlement, approbation et rejet d'agents). L'enrôlement des agents (§4bis) est public : jetons d'enrôlement à haute entropie stockés hachés et comparés en temps constant, aucun jeton dans les journaux ni les messages d'erreur, limites de débit par IP distinctes avec et sans jeton, plafond d'agents `pending`, corps limité à 4 Ko, jetons invalides comptés comme échecs d'authentification, et aucun écrasement ni divulgation d'un agent existant (`409`).
 
 ## 15. Hors périmètre et évolutions possibles
 

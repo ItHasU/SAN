@@ -94,16 +94,22 @@ describe.runIf(inject("databaseAvailable"))("enrôlement des agents", () => {
             expect((await t.api("GET", "/admin/groups/ci/enrollment-tokens", { cookie })).json.tokens[0].state).toBe("revoked");
         });
 
-        it("journalise la création et la révocation sans jamais écrire le secret", async () => {
+        it("journalise création, révocation, approbation et rejet sans jamais écrire un secret", async () => {
             await createGroup();
             const { enrollment_token, token } = await createToken();
             await t.api("DELETE", `/admin/groups/ci/enrollment-tokens/${enrollment_token.id}`, { cookie });
-            const rows = await t.db.runner.all<any>(`SELECT * FROM system_actions`).catch(() => [] as any[]);
+            const a = (await register({ slug: "a" })).json;
+            const b = (await register({ slug: "b" })).json;
+            await t.api("POST", "/admin/agents/a/approve", { cookie, body: { groups: ["ci"] } });
+            await t.api("DELETE", "/admin/agents/b", { cookie });
+            const rows = await t.db.runner.all<{ name: string, details: unknown }>(`SELECT "name", "details" FROM system_audit_log WHERE "name" LIKE 'admin.%' ORDER BY "id"`);
+            const names = rows.map((row) => row.name);
+            for (const expected of ["admin.group.enrollment_token.create", "admin.group.enrollment_token.revoke", "admin.agent.approve", "admin.agent.reject"]) {
+                expect(names).toContain(expected);
+            }
             const dump = JSON.stringify(rows);
-            expect(dump).not.toContain(token);
-            if (rows.length > 0) {
-                expect(dump).toContain("group.enrollment_token.create");
-                expect(dump).toContain("group.enrollment_token.revoke");
+            for (const secret of [token, token.slice(4), a.token, b.token]) {
+                expect(dump).not.toContain(secret);
             }
         });
 

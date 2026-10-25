@@ -83,7 +83,7 @@ structurante doit y être ajoutée.
 
 ## 4. Conventions de protocole
 
-- **Jetons** : `agt_` / `dev_` / `web_` + 32 octets aléatoires en base64url. Stocké :
+- **Jetons** : `agt_` / `dev_` / `web_` (et `enr_` pour les jetons d'enrôlement d'agents, §13) + 32 octets aléatoires en base64url. Stocké :
   `sha256(token)` (bytea). Recherche par hash puis comparaison `timingSafeEqual`.
 - **Code d'appairage** : `[A-Z]{1}[0-9A-Z]{1}-[0-9]{2}` lisible, sans `0/O/1/I`
   (ex. `K7-42`). Unique parmi les pending.
@@ -134,7 +134,8 @@ structurante doit y être ajoutée.
 Celles de Dagda (`APP_PORT`, `APP_BASE_URL`, `APP_DATABASE_URL`, `APP_SECRET`) plus :
 `DATA_DIR` (défaut `./data`), `TTS_URL`, `TTS_ENGINE` (`piper`|`fake`, défaut
 `piper` si `TTS_URL` défini sinon `fake`), `FFMPEG_PATH`/`FFPROBE_PATH` (optionnels),
-`SAN_REGISTER_RATE_PER_HOUR` (5), `SAN_MAX_PENDING` (20), `SAN_TRUST_PROXY` (1).
+`SAN_REGISTER_RATE_PER_HOUR` (5), `SAN_MAX_PENDING` (20), `SAN_AGENT_REGISTER_RATE_PER_HOUR` (5),
+`SAN_AGENT_ENROLL_RATE_PER_HOUR` (60), `SAN_MAX_PENDING_AGENTS` (20), `SAN_TRUST_PROXY` (1).
 
 ## 7. Firmware — capacités déclarées (M5StickS3, à confirmer)
 
@@ -291,3 +292,39 @@ et `postgresql://dagda:dagda@localhost:5432/san` (serveur de dev). ffmpeg dans `
   (≥ 44 px), `overflow-wrap: anywhere` sur les textes serveur. Test e2e : aucun débordement horizontal à 360 px.
 - **Tests e2e** : le `webServer` Playwright est lancé avant le `globalSetup` ; la remise à zéro de `san_e2e`
   est donc faite par `e2e/support/start-server.mjs` (commande du webServer).
+
+## 13. Enrôlement des agents (SPEC §4bis)
+
+- **Migration `0006-agent-enrollment`** : `agents.status` (`pending|active`, défaut `active`, CHECK),
+  `agents.registered_ip`, `agents.pending_since`, index partiel des pending, table
+  `agent_enrollment_tokens` (empreinte `bytea UNIQUE`, `ON DELETE CASCADE` sur le groupe). La
+  révocation reste portée par `revoked_at` ; `status` ne code que l'enrôlement (un agent révoqué garde
+  `active`). Aucune colonne ne contient un secret en clair.
+- **Module** `server/src/san/enrollment.ts` : jetons (`createEnrollmentToken`, `listEnrollmentTokens`,
+  `revokeEnrollmentToken`, `findValidEnrollmentToken`) et `registerAgent`, une transaction sérialisée
+  par un verrou consultatif (`AGENT_REGISTER_LOCK_KEY`) qui garantit le plafond de pending. Elle
+  réutilise `createAgent` (`agents.ts`), le chemin de la création admin, et émet `notifyConfigChanged`
+  pour les enrôlements actifs (propagation SSE/sync). `approveAgent` et `purgePendingAgents` vivent
+  dans `agents.ts` ; la purge est appelée par `runPeriodicTasks` (délai `pendingMaxAgeDays`, comme les viewers).
+- **Invisibilité des pending** : toutes les requêtes qui filtraient `a.revoked_at IS NULL` filtrent aussi
+  `a.status = 'active'` (permissions, couverture, configuration, états SSE, clips, TTS). Un agent
+  pending n'apparaît donc dans aucun aperçu d'impact tant qu'il n'est pas approuvé ; à l'approbation,
+  `withImpact` calcule les viewers qui gagnent l'accès.
+- **Authentification** : `AgentPrincipal.status` ; le middleware Bearer répond `403 agent_pending` à un
+  agent pending hors de `/agent/status`. Un jeton `enr_` n'authentifie aucun principal. Un agent révoqué
+  reçoit `401`, y compris sur `/agent/status` (comme `/device/status` pour une carte) : la valeur
+  `revoked` n'est donc jamais renvoyée par cette route.
+- **Route publique** : `POST /agent/register` est montée avant le middleware Bearer, avec un
+  `express.json` de 4 Ko. Limiteurs en mémoire par IP : `agentRegister` (sans jeton, 5/h) et
+  `agentEnroll` (avec jeton, 60/h) ; le choix dépend de la présence du champ `enrollment_token` (avant
+  validation), et une `401` incrémente aussi le limiteur d'échecs d'authentification.
+- **Journal** : les actions admin (`group.enrollment_token.create|revoke`, `agent.approve`,
+  `agent.reject`) passent par `audit` (journal Dagda) sans secret. L'enrôlement lui-même est anonyme (pas
+  d'utilisateur Dagda) : il est journalisé par une ligne `console.log` (slug, statut, groupe, id du jeton, IP).
+- **Rejet** : `DELETE /admin/agents/:slug` supprime toujours un agent pending (pas de révocation
+  d'un pending : `PATCH {revoked:true}` répond `409 agent_pending`).
+- **Variables** : `SAN_AGENT_REGISTER_RATE_PER_HOUR` (5), `SAN_AGENT_ENROLL_RATE_PER_HOUR` (60),
+  `SAN_MAX_PENDING_AGENTS` (20).
+- **Limites connues** : un attaquant peut occuper les places de pending (20) ou « squatter » des slugs
+  pendant 7 jours ; l'effet est borné par le plafond, la limite par IP et la purge, et les enrôlements
+  avec jeton ne sont jamais bloqués par le plafond.

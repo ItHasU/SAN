@@ -101,7 +101,8 @@ n'est exécuté que si `GET /api/v1/health` répond (routes audio fusionnées).
 ## Configuration
 
 Variables Dagda : `APP_PORT`, `APP_BASE_URL`, `APP_DATABASE_URL`, `APP_SECRET`.
-Variables SAN : `SAN_REGISTER_RATE_PER_HOUR` (5), `SAN_MAX_PENDING` (20),
+Variables SAN : `SAN_REGISTER_RATE_PER_HOUR` (5), `SAN_MAX_PENDING` (20), `SAN_AGENT_REGISTER_RATE_PER_HOUR` (5),
+`SAN_AGENT_ENROLL_RATE_PER_HOUR` (60), `SAN_MAX_PENDING_AGENTS` (20),
 `SAN_TRUST_PROXY` (1), `SAN_RATE_PER_MINUTE` (300), `SAN_AUTH_FAILURES_PER_MINUTE` (30),
 `DATA_DIR` (`./data`), `TTS_ENGINE` (`piper` si `TTS_URL` défini, sinon `fake`), `TTS_URL`,
 `FFMPEG_PATH` / `FFPROBE_PATH`. Voir `.env.example`.
@@ -113,7 +114,9 @@ Préfixe `/api/v1`. Erreurs JSON `{ "error": "code", "message": "…" }`.
 | Route | Auth |
 |---|---|
 | `POST /device/register`, `GET /device/status` | aucune / jeton `dev_` (même pending) |
-| `POST /agent/state`, `POST /agent/nudge` | jeton `agt_` |
+| `POST /agent/register` `{slug, name?, enrollment_token?}` | aucune : `201 {slug, status:"active"\|"pending", token, group?}` (jeton d'enrôlement valide → actif dans le groupe ; sans jeton → `pending` ; jeton invalide → `401`, slug pris → `409`) |
+| `GET /agent/status` | jeton `agt_` (même pending) : `{slug, status}` |
+| `POST /agent/state`, `POST /agent/nudge` | jeton `agt_` actif |
 | `POST /web/register` | session Dagda |
 | `GET /agent/inbox?ack=&wait=` | jeton `agt_` |
 | `GET /viewer/sync`, `POST /viewer/ack`, `PUT /viewer/capabilities`, `GET/PUT /viewer/config`, `GET /viewer/events` (SSE) | jeton `dev_` / `web_` actif |
@@ -124,6 +127,7 @@ Préfixe `/api/v1`. Erreurs JSON `{ "error": "code", "message": "…" }`.
 | `GET /viewer/voice/:clip` | jeton `dev_` / `web_` : clip dans le format choisi selon les capacités (`Range` géré) |
 | `POST /viewer/voice?to=<agent>` | jeton `dev_` / `web_` avec `can_send_voice` et `audio_in` : corps `audio/wav` (PCM ou IMA ADPCM), `audio/webm`, `audio/ogg`, `audio/mp4` (Safari) : `201 {clip_id, event_id}` |
 | `/admin/agents`, `/admin/groups`, `/admin/viewers` (+ `activate`, `revoke`, `token`, `members`) | session Dagda |
+| `/admin/agents/:slug/approve`, `/admin/groups/:slug/enrollment-tokens[/:id]` | session Dagda |
 | `/admin/viewers/:id/rules`, `/admin/rules/:id` (+ `coverage`), `/admin/viewers/:id/access/:agent`, `/admin/viewers/:id/subscriptions` | session Dagda |
 
 Codes audio : `413` corps > 2 Mo ou clip trop long (`audio_too_long`), `415` type refusé,
