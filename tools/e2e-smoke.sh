@@ -50,6 +50,7 @@ cleanup() {
   if [ -n "$REMOTE_URL" ] && [ -f "${JAR:-/nonexistent}" ]; then # nettoyage de ce que le script a créé
     [ -n "$VID" ] && [ "$REVOKED" = 0 ] && curl -s -o /dev/null -b "$JAR" -X POST "$URL/api/v1/admin/viewers/$VID/revoke" || true
     curl -s -o /dev/null -b "$JAR" -X DELETE "$URL/api/v1/admin/agents/$SLUG?purge=true" || true
+    curl -s -o /dev/null -b "$JAR" -X DELETE "$URL/api/v1/admin/agents/$SLUG-b?purge=true" || true
   fi
   for p in "${PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done
   wait 2>/dev/null || true
@@ -195,12 +196,29 @@ s="$(sim sync)"
 check "premier réveil : capacités envoyées" true "$(printf '%s' "$s" | jq -r .capabilities_sent)"
 check "premier réveil : configuration reçue" true "$(printf '%s' "$s" | jq -r .config_changed)"
 cfg="$(sim config)"
+check "config.mode" auto "$(printf '%s' "$cfg" | jq -r .config.mode)"
+truthy "mode auto : agent suivi sans abonnement, can_send_voice selon la règle" ".config.agents[] | select(.agent==\"$SLUG\") | .can_send_voice==true and .new!=true" "$cfg"
+st="$(sim config-put --toggle "$SLUG")"
+check "mode auto : l'abonnement est ignoré, l'agent reste visible" 1 "$(printf '%s' "$st" | jq "[.config.agents[] | select(.agent==\"$SLUG\")] | length")"
+
+step "Mode manual : agent new, abonnement, conflit 409"
+admin PATCH "/admin/viewers/$VID" '{"subscription_mode":"manual"}' >/dev/null
+sim sync >/dev/null
+cfg="$(sim config)"
 check "config.mode" manual "$(printf '%s' "$cfg" | jq -r .config.mode)"
-truthy "agent visible, marqué new, can_send_voice" ".config.agents[0] | .agent==\"$SLUG\" and .new==true and .can_send_voice==true" "$cfg"
-st="$(sim config-put --toggle "$SLUG" --stale-hash)"
+truthy "auto → manual : l'agent existant devient abonné (rien ne disparaît)" ".config.agents[] | select(.agent==\"$SLUG\") | .subscribed==true and .new==false" "$cfg"
+SLUG2="$SLUG-b"
+admin POST /admin/agents '{"slug":"'"$SLUG2"'","name":"Smoke B"}' >/dev/null
+admin POST "/admin/viewers/$VID/rules" '{"scope":"agent","pattern":"'"$SLUG2"'","can_send_voice":false}' >/dev/null
+cfg="$(sim config)"
+truthy "nouvel agent : marqué new, non abonné, sans droit vocal" ".config.agents[] | select(.agent==\"$SLUG2\") | .new==true and .subscribed==false and .can_send_voice==false" "$cfg"
+st="$(sim config-put --toggle "$SLUG2" --stale-hash)"
 check "PUT config avec base_hash périmé → 409" true "$(printf '%s' "$st" | jq -r .conflict)"
-put="$(sim config-put --toggle "$SLUG")"
-check "PUT config → abonné" true "$(printf '%s' "$put" | jq -r '.config.agents[0].subscribed')"
+put="$(sim config-put --toggle "$SLUG2")"
+check "PUT config → abonné" true "$(printf '%s' "$put" | jq -r ".config.agents[] | select(.agent==\"$SLUG2\") | .subscribed")"
+admin PATCH "/admin/viewers/$VID" '{"subscription_mode":"auto"}' >/dev/null
+sim sync >/dev/null
+check "retour en mode auto" auto "$(sim config | jq -r .config.mode)"
 
 # --- 6. Agent → carte --------------------------------------------------------
 step "Agent réel (bin/san) → carte"
