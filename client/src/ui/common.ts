@@ -19,6 +19,21 @@ const STATUS_TAG: Record<AgentStatus, string> = {
     done: "tag-success"
 };
 
+const STATUS_ICON: Record<AgentStatus, string> = {
+    idle: "ph-moon",
+    working: "ph-spinner-gap",
+    waiting: "ph-hourglass-medium",
+    error: "ph-warning-circle",
+    done: "ph-check-circle"
+};
+
+/** Grande icône d'état (décorative : le libellé est porté par la pastille) ; `null` = aucun état connu */
+export function statusIcon(status: AgentStatus | string | null): HTMLElement {
+    const known = status != null && (Object.keys(STATUS_ICON) as AgentStatus[]).includes(status as AgentStatus);
+    return h("span", { class: "san-status-icon", "aria-hidden": "true", data: { status: status == null ? "none" : String(status) } },
+        icon(known ? STATUS_ICON[status as AgentStatus] : "ph-question"));
+}
+
 /** Pastille de statut : point coloré + libellé (jamais la couleur seule) ; `stale` ajoute « périmé » */
 export function statusBadge(status: AgentStatus | string, stale: boolean): HTMLElement {
     const known = (Object.keys(STATUS_LABELS) as AgentStatus[]).includes(status as AgentStatus);

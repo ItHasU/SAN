@@ -4,7 +4,7 @@ import { h, icon } from "../../lib/dom";
 import { VoiceRecorder } from "../../lib/recorder";
 import { TrackedAgent } from "../../lib/store";
 import { formatClock, formatRelative } from "../../lib/time";
-import { button, progressBar, reportError, statusBadge } from "../../ui/common";
+import { button, progressBar, reportError, statusBadge, statusIcon } from "../../ui/common";
 
 export interface AgentCardContext {
     /** Le navigateur sait enregistrer (MediaRecorder + getUserMedia) */
@@ -20,6 +20,7 @@ export class AgentCard {
 
     public readonly element: HTMLElement;
     protected readonly _head = h("div", { class: "san-row san-row-between" });
+    protected readonly _icon = h("div", { class: "san-agent-icon" });
     protected readonly _title = h("div", { class: "san-title" });
     protected readonly _badge = h("div");
     protected readonly _detail = h("p", { class: "san-detail" });
@@ -33,7 +34,7 @@ export class AgentCard {
     protected _cancelButton!: HTMLButtonElement;
 
     constructor(protected readonly _context: AgentCardContext) {
-        this._head.append(this._title, this._badge);
+        this._head.append(h("div", { class: "san-row san-agent-name" }, this._icon, this._title), this._badge);
         this.element = h("article", { class: "san-card san-agent" }, this._head, this._detail, this._progress, this._meta, this._voice);
         this._micButton = button("Parler", "btn-secondary san-rec", () => this._toggleRecording(), "ph-microphone");
         this._cancelButton = button("Annuler", "btn-ghost", () => this._cancel());
@@ -51,6 +52,7 @@ export class AgentCard {
         if (config.muted) {
             this._title.appendChild(h("span", { class: "tag tag-outline", text: "muet" }));
         }
+        this._icon.replaceChildren(statusIcon(state?.status ?? null));
         const badge = state == null ? h("span", { class: "tag tag-neutral", text: "Aucun état" }) : statusBadge(state.status, state.stale);
         this._badge.replaceChildren(badge);
         const detail = state?.detail ?? "";

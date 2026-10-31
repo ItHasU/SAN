@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AgentCard } from "../pages/dashboard/agent-card";
 import { EventItem } from "../pages/dashboard/event-item";
-import { progressBar, statusBadge } from "./common";
+import { progressBar, statusBadge, statusIcon } from "./common";
 import { groupByViewer, impactBody, curlExample } from "./dialogs";
 
 const EVIL = "<img src=x onerror=\"window.__pwned=1\">";
@@ -17,6 +17,7 @@ describe("rendu sans injection (SPEC §14)", () => {
         expect(card.element.querySelector("img")).toBeNull();
         expect(card.element.textContent).toContain(EVIL);
         expect(card.element.querySelector("[role=progressbar]")?.getAttribute("aria-valuenow")).toBe("40");
+        expect(card.element.querySelector(".san-status-icon")?.getAttribute("data-status")).toBe("working");
     });
 
     it("un nudge malveillant est affiché comme du texte, priorité high mise en évidence", () => {
@@ -40,6 +41,15 @@ describe("rendu sans injection (SPEC §14)", () => {
         expect(badge.textContent).toContain("Erreur");
         expect(badge.textContent).toContain("périmé");
         expect(statusBadge(EVIL, false).querySelector("img")).toBeNull();
+    });
+
+    it("grande icône d'état selon le statut, point d'interrogation sinon", () => {
+        expect(statusIcon("done").querySelector("i")?.className).toContain("ph-check-circle");
+        expect(statusIcon("error").dataset["status"]).toBe("error");
+        expect(statusIcon(null).dataset["status"]).toBe("none");
+        expect(statusIcon(EVIL).querySelector("i")?.className).toContain("ph-question");
+        expect(statusIcon(EVIL).querySelector("img")).toBeNull();
+        expect(statusIcon("idle").getAttribute("aria-hidden")).toBe("true");
     });
 
     it("borne la progression", () => {
