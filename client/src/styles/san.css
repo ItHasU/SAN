@@ -173,6 +173,51 @@
     .san-status[data-status="working"] .san-dot { animation: none; }
 }
 
+/* grande icône d'état à côté du nom de l'agent */
+.san-agent-name {
+    flex-wrap: nowrap;
+    min-width: 0;
+}
+
+.san-agent-name .san-title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.san-agent-icon {
+    flex: none;
+    display: flex;
+}
+
+.san-status-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: var(--radius-round);
+    font-size: 2rem;
+    background: var(--color-divider);
+    color: var(--color-text-meta);
+}
+
+.san-status-icon[data-status="working"] { background: var(--tag-info-bg); color: var(--tag-info-fg); }
+.san-status-icon[data-status="waiting"] { background: var(--tag-warning-bg); color: var(--tag-warning-fg); }
+.san-status-icon[data-status="error"] { background: var(--tag-danger-bg); color: var(--tag-danger-fg); }
+.san-status-icon[data-status="done"] { background: var(--tag-success-bg); color: var(--tag-success-fg); }
+
+.san-status-icon[data-status="working"] .ph {
+    animation: san-spin 1.6s linear infinite;
+}
+
+@keyframes san-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .san-status-icon[data-status="working"] .ph { animation: none; }
+}
+
 .san-stale {
     font-style: italic;
 }
