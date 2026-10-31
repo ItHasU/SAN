@@ -13,9 +13,31 @@ const port = process.env.SAN_E2E_PORT ?? "3200";
 const databaseUrl = process.env.SAN_E2E_DB_URL ?? "postgresql://dagda:dagda@localhost:5432/san_e2e";
 const dataDir = resolve(root, "server/.e2e-data");
 
+/** Crée la base si elle n'existe pas encore (CI : seul `dagda` est créé par le service postgres) */
+async function connectOrCreate() {
+    const client = new pg.Client({ connectionString: databaseUrl });
+    try {
+        await client.connect();
+        return client;
+    } catch (error) {
+        if (error?.code !== "3D000") {
+            throw error;
+        }
+    }
+    const url = new URL(databaseUrl);
+    const name = decodeURIComponent(url.pathname.slice(1));
+    url.pathname = "/postgres";
+    const admin = new pg.Client({ connectionString: url.toString() });
+    await admin.connect();
+    await admin.query(`CREATE DATABASE "${name.replaceAll('"', '""')}"`);
+    await admin.end();
+    const created = new pg.Client({ connectionString: databaseUrl });
+    await created.connect();
+    return created;
+}
+
 /** Repart d'une base vide : Dagda recrée alors le compte admin / admin */
-const client = new pg.Client({ connectionString: databaseUrl });
-await client.connect();
+const client = await connectOrCreate();
 await client.query("DROP SCHEMA IF EXISTS public CASCADE");
 await client.query("CREATE SCHEMA public");
 await client.end();

@@ -1,8 +1,8 @@
 import { Client } from "pg";
 
 /**
- * La base `san_e2e` (créée une fois : `sudo -u postgres createdb -O dagda san_e2e`)
- * est recréée à chaque exécution par `start-server.mjs`. Playwright lance en effet
+ * La base `san_e2e` est créée si besoin puis recréée à chaque exécution par
+ * `start-server.mjs`. Playwright lance en effet
  * le `webServer` AVANT le `globalSetup` : la remise à zéro doit précéder le
  * démarrage du serveur. Ce setup vérifie seulement que la base répond.
  */
