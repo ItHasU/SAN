@@ -12,6 +12,23 @@ export interface TrackedAgent {
     state: StateView | null;
 }
 
+/** Sans état ni événement depuis ce délai, un agent est masqué du tableau de bord */
+export const INACTIVE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/** Instant (ms) des dernières nouvelles d'un agent : son état ou son événement le plus récent ; `null` s'il n'a rien envoyé */
+export function lastHeard(entry: TrackedAgent, events: readonly EventView[]): number | null {
+    const times = [entry.state?.updated_at, ...events.filter((event) => event.agent === entry.config.agent).map((event) => event.created_at)]
+        .map((value) => value == null ? Number.NaN : Date.parse(value))
+        .filter((time) => Number.isFinite(time));
+    return times.length === 0 ? null : Math.max(...times);
+}
+
+/** L'agent a donné des nouvelles depuis moins de `windowMs` */
+export function isActive(entry: TrackedAgent, events: readonly EventView[], now: number, windowMs = INACTIVE_AFTER_MS): boolean {
+    const heard = lastHeard(entry, events);
+    return heard != null && now - heard < windowMs;
+}
+
 /**
  * État du tableau de bord : configuration, états des agents, historique des
  * événements. Aucune E/S : alimenté par la synchronisation et les messages SSE,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DashboardStore } from "./store";
+import { DashboardStore, INACTIVE_AFTER_MS, isActive, lastHeard } from "./store";
 
 const agent = (name: string, position: number | null, subscribed = true) => ({ agent: name.toLowerCase(), name, subscribed, new: false, position, muted: false, can_send_voice: false });
 
@@ -36,5 +36,21 @@ describe("DashboardStore", () => {
         store.applyState({ agent: "a", name: "A", status: "done", progress: null, stale: false, updated_at: "y" });
         expect(count).toBe(1);
         expect(store.state("a")?.status).toBe("done");
+    });
+    it("un agent est actif s'il a donné des nouvelles (état ou événement) depuis moins de 24 h", () => {
+        const now = Date.parse("2026-11-01T12:00:00Z");
+        const old = new Date(now - INACTIVE_AFTER_MS - 1000).toISOString();
+        const recent = new Date(now - 60_000).toISOString();
+        const entry = (updated_at: string | null) => ({
+            config: agent("Amy", 0),
+            state: updated_at == null ? null : { agent: "amy", name: "Amy", status: "idle" as const, progress: null, stale: false, updated_at }
+        });
+        const event = (created_at: string, name = "amy") => ({ id: 1, agent: name, kind: "nudge" as const, created_at });
+        expect(isActive(entry(recent), [], now)).toBe(true);
+        expect(isActive(entry(old), [], now)).toBe(false);
+        expect(isActive(entry(null), [], now)).toBe(false);
+        expect(isActive(entry(old), [event(recent)], now)).toBe(true);
+        expect(isActive(entry(old), [event(recent, "bob")], now)).toBe(false);
+        expect(lastHeard(entry(null), [event("pas une date")])).toBeNull();
     });
 });

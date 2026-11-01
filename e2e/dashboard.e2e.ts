@@ -91,15 +91,36 @@ test.describe("Tableau de bord en temps réel", () => {
         await shot(page, info, "echappement");
     });
 
+    test("masque les agents sans nouvelles et les affiche à la demande", async ({ page, baseURL }) => {
+        await login(page);
+        await expect(page.locator("[data-connection=live]")).toBeVisible();
+        const silent = uid("muet");
+        const active = uid("actif");
+        await createAgentApi(page, silent, "Silencieux");
+        const token = await createAgentApi(page, active, "Actif");
+        await grantSelf(page);
+        await (await FakeAgent.create(token, baseURL!)).state({ status: "working" });
+        await expect(page.locator(`.san-agent[data-agent="${active}"]`)).toBeVisible();
+        await expect(page.locator(`.san-agent[data-agent="${silent}"]`)).toHaveCount(0);
+        const toggle = page.locator("[data-action=toggle-inactive]");
+        await expect(toggle).toContainText("Afficher");
+        await toggle.click();
+        await expect(page.locator(`.san-agent[data-agent="${silent}"]`)).toBeVisible();
+        await expect(toggle).toHaveAttribute("aria-pressed", "true");
+        await toggle.click();
+        await expect(page.locator(`.san-agent[data-agent="${silent}"]`)).toHaveCount(0);
+    });
+
     test("réglages : ordre et muet via PUT /viewer/config", async ({ page, baseURL }) => {
         await login(page);
         await expect(page.locator("[data-connection=live]")).toBeVisible();
         const a = uid("ord-a");
         const b = uid("ord-b");
         const tokenA = await createAgentApi(page, a, "Alpha");
-        await createAgentApi(page, b, "Bravo");
+        const tokenB = await createAgentApi(page, b, "Bravo");
         await grantSelf(page);
         await (await FakeAgent.create(tokenA, baseURL!)).state({ status: "idle" });
+        await (await FakeAgent.create(tokenB, baseURL!)).state({ status: "idle" });
         await expect(page.locator(`.san-agent[data-agent="${a}"]`)).toBeVisible();
         await expect(page.locator(`.san-agent[data-agent="${b}"]`)).toBeVisible();
         // Pas de can_send_voice sur la règle : ni micro ni « Annuler » sur la carte

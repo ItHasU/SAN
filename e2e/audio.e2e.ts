@@ -18,6 +18,8 @@ test.describe("Audio", () => {
         });
         await (await FakeAgent.create(token, info.project.use.baseURL ?? "http://127.0.0.1:3200")).state({ status: "idle" });
         const card = page.locator(`.san-agent[data-agent="${slug}"]`);
+        // La carte n'apparaît qu'une fois l'état reçu (agents sans nouvelles masqués)
+        await expect(card).toBeVisible();
         const mic = card.locator(".san-rec");
         test.skip(await mic.count() === 0 || !await mic.isVisible(), "MediaRecorder indisponible dans ce navigateur");
         await mic.click();

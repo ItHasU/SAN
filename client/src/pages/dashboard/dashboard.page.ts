@@ -5,7 +5,7 @@ import { dagda } from "../../dagda";
 import { browserEnv, buildCapabilities } from "../../lib/capabilities";
 import { h, icon, setChildren } from "../../lib/dom";
 import { notificationPermission, requestNotificationPermission } from "../../lib/notify";
-import { TrackedAgent } from "../../lib/store";
+import { INACTIVE_AFTER_MS, isActive, TrackedAgent } from "../../lib/store";
 import { button, emptyState, errorMessage, iconButton, pageHeader, reportError, section } from "../../ui/common";
 import { confirmImpact } from "../../ui/dialogs";
 import { SanPage } from "../../ui/page";
@@ -24,12 +24,15 @@ export class DashboardPage extends SanPage {
     protected _unsubscribe: (() => void) | null = null;
     protected _scheduled = false;
     protected _editing = false;
+    /** Affiche aussi les agents sans nouvelles récentes */
+    protected _showInactive = false;
     protected readonly _cards = new Map<string, AgentCard>();
     protected readonly _items = new Map<number, EventItem>();
     protected _built = false;
     protected _connection!: HTMLElement;
     protected _toolbar!: HTMLElement;
     protected _agents!: HTMLElement;
+    protected _inactive!: HTMLElement;
     protected _settings!: HTMLElement;
     protected _events!: HTMLElement;
 
@@ -42,11 +45,12 @@ export class DashboardPage extends SanPage {
         this._connection = h("span", { class: "tag tag-neutral san-conn", role: "status", "aria-live": "polite", data: { connection: "connecting" } });
         this._toolbar = h("div", { class: "san-actions" });
         this._agents = h("div", { class: "san-list san-list-cols", data: { list: "agents" } });
+        this._inactive = h("div", { class: "san-row", data: { list: "inactive" } });
         this._settings = h("div", { hidden: true, data: { list: "settings" } });
         this._events = h("div", { class: "san-list", data: { list: "events" } });
         setChildren(this._root,
             pageHeader("Tableau de bord", this._connection, this._toolbar),
-            section("Agents", this._settings, this._agents),
+            section("Agents", this._settings, this._agents, this._inactive),
             section("Activité récente", this._events));
         this._unsubscribe = this._runtime.store.subscribe(() => this._schedule());
         this._runtime.session.start();
@@ -119,13 +123,17 @@ export class DashboardPage extends SanPage {
         this._toolbar.replaceChildren(...buttons);
     }
 
-    protected _drawAgents(tracked: TrackedAgent[]): void {
+    protected _drawAgents(all: TrackedAgent[]): void {
         const { store, api } = this._runtime;
         const context = {
             canRecord: buildCapabilities(browserEnv()).audio_in != null,
             sendVoice: (agent: string, audio: Blob) => api.sendVoice(agent, audio)
         };
         const now = Date.now();
+        const active = all.filter((entry) => isActive(entry, store.events, now));
+        const hidden = all.length - active.length;
+        const tracked = this._showInactive ? all : active;
+        this._drawInactiveToggle(hidden);
         const wanted = new Set(tracked.map((agent) => agent.config.agent));
         for (const [slug, card] of this._cards) {
             if (!wanted.has(slug)) {
@@ -145,7 +153,7 @@ export class DashboardPage extends SanPage {
             nodes.push(card.element);
         }
         if (tracked.length === 0) {
-            this._agents.replaceChildren(store.config == null ? emptyState("Chargement…") : this._noAgents());
+            this._agents.replaceChildren(store.config == null ? emptyState("Chargement…") : all.length === 0 ? this._noAgents() : emptyState(`Aucune nouvelle d'un agent depuis ${INACTIVE_AFTER_MS / 3_600_000} h.`));
             return;
         }
         // Ne réinsère que si l'ordre ou la composition change (garde le focus et les enregistrements en cours)
@@ -153,6 +161,26 @@ export class DashboardPage extends SanPage {
         if (!same) {
             this._agents.replaceChildren(...nodes);
         }
+    }
+
+    /** Bouton afficher / masquer les agents sans nouvelles récentes (absent s'il n'y en a aucun) */
+    protected _drawInactiveToggle(hidden: number): void {
+        this._inactive.hidden = hidden === 0;
+        if (hidden === 0) {
+            this._inactive.replaceChildren();
+            return;
+        }
+        const label = this._showInactive
+            ? `Masquer ${hidden === 1 ? "l'agent inactif" : `les ${hidden} agents inactifs`}`
+            : `Afficher ${hidden === 1 ? "l'agent inactif" : `les ${hidden} agents inactifs`}`;
+        const current = this._inactive.firstElementChild;
+        if (current instanceof HTMLButtonElement && current.textContent === label) {
+            return;
+        }
+        this._inactive.replaceChildren(button(label, "btn-ghost", () => {
+            this._showInactive = !this._showInactive;
+            this._draw();
+        }, this._showInactive ? "ph-eye-slash" : "ph-eye", { "aria-pressed": String(this._showInactive), data: { action: "toggle-inactive" } }));
     }
 
     /** État vide : l'administrateur peut s'accorder l'accès d'un geste */
