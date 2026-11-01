@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Icône SAN : un émetteur (point) et ses ondes, couleurs du thème Nocturne -->
+  <rect width="512" height="512" fill="#161826"/>
+  <g fill="none" stroke="#9184d9" stroke-width="28" stroke-linecap="round">
+    <path d="M196 196a85 85 0 0 0 0 120"/>
+    <path d="M316 196a85 85 0 0 1 0 120"/>
+    <path d="M154 154a144 144 0 0 0 0 204"/>
+    <path d="M358 154a144 144 0 0 1 0 204"/>
+  </g>
+  <circle cx="256" cy="256" r="34" fill="#9184d9"/>
+</svg>
